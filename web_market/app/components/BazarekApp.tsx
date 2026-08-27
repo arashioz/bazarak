@@ -37,6 +37,7 @@ type Product = {
   invoices: Invoice[];
   percentages: [number, number, number];
   rounding: [number, number, number];
+  roundingEnabled: [boolean, boolean, boolean];
 };
 type AppSettings = { id: "settings"; columnLabels: [string, string, string] };
 type Task = { id: number; text: string; done: boolean };
@@ -64,9 +65,10 @@ const parseAmount = (value: unknown) => {
 };
 const date = (value: string) =>
   new Date(value).toLocaleDateString("fa-IR", { year: "numeric", month: "2-digit", day: "2-digit" });
-const sale = (product: Product, index: number) =>
-  Math.round((product.price * (1 + product.percentages[index] / 100)) / product.rounding[index]) *
-  product.rounding[index];
+const sale = (product: Product, index: number) => {
+  const exact = product.price * (1 + product.percentages[index] / 100);
+  return product.roundingEnabled[index] ? Math.round(exact / product.rounding[index]) * product.rounding[index] : Number(exact.toFixed(3));
+};
 
 const excelSeed = (): Product[] => {
   const createdAt = now();
@@ -81,6 +83,7 @@ const excelSeed = (): Product[] => {
     invoices: row.price > 0 ? [{ price: row.price, registeredAt: createdAt }] : [],
     percentages: [row.percent, row.percent, row.percent],
     rounding: [1000, 1000, 1000],
+    roundingEnabled: [true, true, true],
   }));
 };
 
@@ -105,6 +108,7 @@ const normalizeProducts = (raw: unknown): Product[] => {
       invoices,
       percentages: product.percentages || [12, 9, 6],
       rounding: product.rounding || [1000, 1000, 1000],
+      roundingEnabled: product.roundingEnabled || [true, true, true],
     };
   });
 };
@@ -257,6 +261,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         invoices: [{ price, registeredAt: createdAt }],
         percentages: [getNumber("p1"), getNumber("p2"), getNumber("p3")],
         rounding: [getNumber("r1"), getNumber("r2"), getNumber("r3")],
+        roundingEnabled: [true, true, true],
       },
       ...products,
     ]);
@@ -326,7 +331,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         const percent = percentCol >= 0 ? parseAmount(row[percentCol]) : 0;
         imported.push({ ...(previous || {}), id: previous?.id ?? Date.now() + index, name, price, updated: registeredAt,
           invoices: [{ price, registeredAt }, ...(previous?.invoices || [])], percentages: previous?.percentages || [percent, percent, percent],
-          rounding: previous?.rounding || [1000, 1000, 1000], featured: previous?.featured ?? false, catalogUrl: previous?.catalogUrl || "", description: previous?.description || "" });
+          rounding: previous?.rounding || [1000, 1000, 1000], roundingEnabled: previous?.roundingEnabled || [true, true, true], featured: previous?.featured ?? false, catalogUrl: previous?.catalogUrl || "", description: previous?.description || "" });
       });
       if (!imported.length) throw new Error("empty");
       const byName = new Map(products.map((product) => [product.name, product]));
@@ -390,6 +395,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
               ...selected,
               percentages: [1, 2, 3].map((index) => Number(form.get(`p${index}`)) || 0) as [number, number, number],
               rounding: [1, 2, 3].map((index) => Number(form.get(`r${index}`)) || 1000) as [number, number, number],
+              roundingEnabled: [1, 2, 3].map((index) => form.get(`round${index}`) === "on") as [boolean, boolean, boolean],
               updated: now(),
             };
             setProducts(products.map((product) => (product.id === selected.id ? nextSelected : product)));
@@ -939,11 +945,15 @@ function Detail({
                 {labels.map((label, index) => (
                   <div key={label} className="rounded-lg border border-oxblood/10 bg-white p-2 text-xs">
                     <b className="block">{label}</b>
-                    <label className="mt-2 block text-oxblood-dark/60">درصد
-                      <input name={`p${index + 1}`} type="number" step="0.1" defaultValue={product.percentages[index]} className="mt-1 w-full rounded border border-oxblood/15 p-1.5" />
+                    <label className="mt-2 block text-oxblood-dark/60">درصد (تا سه رقم اعشار)
+                      <input name={`p${index + 1}`} type="number" step="0.001" defaultValue={product.percentages[index]} className="mt-1 w-full rounded border border-oxblood/15 p-1.5" />
                     </label>
                     <label className="mt-2 block text-oxblood-dark/60">رُند مبلغ
                       <input name={`r${index + 1}`} type="number" min="1" defaultValue={product.rounding[index]} className="mt-1 w-full rounded border border-oxblood/15 p-1.5" />
+                    </label>
+                    <label className="mt-2 flex items-center gap-2 text-oxblood-dark/70">
+                      <input name={`round${index + 1}`} type="checkbox" defaultChecked={product.roundingEnabled[index]} className="accent-oxblood" />
+                      رُند شود
                     </label>
                   </div>
                 ))}
