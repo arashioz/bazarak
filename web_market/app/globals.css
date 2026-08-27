@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("/fonts/Vazirmatn.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #fff7f7;
+  color: #2f1014;
+  font-family: "Vazirmatn", Tahoma, Arial, sans-serif;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+input:focus,
+textarea:focus {
+  outline: 2px solid #8f1f2d;
+  outline-offset: 1px;
+}
+
+.bazarek-loader-ring {
+  width: 112px;
+  height: 112px;
+  border: 2px solid rgb(255 255 255 / 20%);
+  border-top-color: #fff;
+  border-radius: 9999px;
+  animation: bazarek-spin 900ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.bazarek-loader-core {
+  position: absolute;
+  top: 31px;
+  display: grid;
+  width: 50px;
+  height: 50px;
+  place-items: center;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 14%);
+  box-shadow: 0 0 0 12px rgb(255 255 255 / 6%), 0 20px 70px rgb(0 0 0 / 25%);
+  animation: bazarek-pop 1.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes bazarek-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bazarek-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.72) translateY(18px);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.08) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
