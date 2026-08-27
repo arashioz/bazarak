@@ -383,6 +383,18 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
           admin={isAdmin}
           onClose={() => setSelected(null)}
           onInvoice={invoice}
+          onUpdatePricing={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            const nextSelected = {
+              ...selected,
+              percentages: [1, 2, 3].map((index) => Number(form.get(`p${index}`)) || 0) as [number, number, number],
+              rounding: [1, 2, 3].map((index) => Number(form.get(`r${index}`)) || 1000) as [number, number, number],
+              updated: now(),
+            };
+            setProducts(products.map((product) => (product.id === selected.id ? nextSelected : product)));
+            setSelected(nextSelected);
+          }}
         />
       )}
     </main>
@@ -871,12 +883,14 @@ function Detail({
   admin,
   onClose,
   onInvoice,
+  onUpdatePricing,
 }: {
   product: Product;
   labels: [string, string, string];
   admin: boolean;
   onClose: () => void;
   onInvoice: (event: FormEvent<HTMLFormElement>) => void;
+  onUpdatePricing: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
     <div className="fixed inset-0 z-20 flex items-end justify-center">
@@ -919,6 +933,23 @@ function Detail({
         </div>
         {admin && (
           <>
+            <form onSubmit={onUpdatePricing} className="mt-5 rounded-lg border border-oxblood/10 bg-blush p-3">
+              <h3 className="font-black">ویرایش درصد و مبلغ سه ستون</h3>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {labels.map((label, index) => (
+                  <div key={label} className="rounded-lg border border-oxblood/10 bg-white p-2 text-xs">
+                    <b className="block">{label}</b>
+                    <label className="mt-2 block text-oxblood-dark/60">درصد
+                      <input name={`p${index + 1}`} type="number" step="0.1" defaultValue={product.percentages[index]} className="mt-1 w-full rounded border border-oxblood/15 p-1.5" />
+                    </label>
+                    <label className="mt-2 block text-oxblood-dark/60">رُند مبلغ
+                      <input name={`r${index + 1}`} type="number" min="1" defaultValue={product.rounding[index]} className="mt-1 w-full rounded border border-oxblood/15 p-1.5" />
+                    </label>
+                  </div>
+                ))}
+              </div>
+              <button className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white">ذخیره قیمت‌گذاری</button>
+            </form>
             <form onSubmit={onInvoice} className="mt-5 grid gap-2 sm:grid-cols-[1fr_auto]">
               <input
                 required
