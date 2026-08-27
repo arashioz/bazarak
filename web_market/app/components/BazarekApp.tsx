@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -358,6 +359,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             onSaveLabels={updateColumnLabels}
             onAddTask={addTask}
             onToggleTask={(id) => setTasks(tasks.map((task) => (task.id === id ? { ...task, done: !task.done } : task)))}
+            onDeleteTask={(id) => setTasks(tasks.filter((task) => task.id !== id))}
             error={error}
           />
         ) : (
@@ -483,6 +485,7 @@ function Header({
         </div>
         <div className="flex gap-3 text-sm font-bold text-oxblood">
           <button onClick={() => navigate("catalog", "/catalog")}>کاتالوگ</button>
+          <button onClick={() => navigate("login", "/modir/login")}>ورود مدیر</button>
           <button onClick={() => navigate("landing", "/")}>تغییر نقش</button>
         </div>
       </div>
@@ -574,6 +577,7 @@ function Admin({
   onSaveLabels,
   onAddTask,
   onToggleTask,
+  onDeleteTask,
   error,
 }: {
   products: Product[];
@@ -585,9 +589,11 @@ function Admin({
   onSaveLabels: (event: FormEvent<HTMLFormElement>) => void;
   onAddTask: (event: FormEvent<HTMLFormElement>) => void;
   onToggleTask: (id: number) => void;
+  onDeleteTask: (id: number) => void;
   error: string;
 }) {
   const [tab, setTab] = useState<AdminTab>("products");
+  const [showSettings, setShowSettings] = useState(false);
   return (
     <section>
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -607,6 +613,9 @@ function Admin({
           <Upload size={18} /> آپلود اکسل
           <input type="file" accept=".xlsx,.xls,.csv" onChange={onImportExcel} className="sr-only" />
         </label>
+        <button onClick={() => setShowSettings(true)} className="inline-flex items-center gap-2 rounded-lg border border-oxblood/20 bg-white px-4 py-2 font-bold text-oxblood">
+          <Settings2 size={18} /> تنظیمات
+        </button>
         </div>
       </div>
 
@@ -627,14 +636,27 @@ function Admin({
 
       {tab === "products" ? (
         <div className="mt-5">
-          <ColumnLabelForm labels={labels} onSave={onSaveLabels} />
           <div className="mt-6">
             <ProductSections products={products} labels={labels} admin onSelect={onSelect} />
           </div>
           <p className="mt-3 min-h-5 text-xs text-oxblood">{error}</p>
         </div>
       ) : (
-        <TaskPanel tasks={tasks} onAddTask={onAddTask} onToggleTask={onToggleTask} />
+        <TaskPanel tasks={tasks} onAddTask={onAddTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
+      )}
+      {showSettings && (
+        <div className="fixed inset-0 z-20 flex items-end justify-center">
+          <div onClick={() => setShowSettings(false)} className="absolute inset-0 bg-oxblood-dark/45" />
+          <section className="relative w-full rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-2xl sm:p-6">
+            <button onClick={() => setShowSettings(false)} className="absolute left-4 top-4 text-oxblood/65" aria-label="بستن"><X /></button>
+            <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-oxblood/20" />
+            <h2 className="flex items-center gap-2 text-xl font-black"><Settings2 size={20} /> تنظیمات ستون‌ها</h2>
+            <p className="mt-2 text-sm text-oxblood-dark/55">نام سه ستون قیمت را تغییر دهید.</p>
+            <div className="mt-4">
+              <ColumnLabelForm labels={labels} onSave={(event) => { onSaveLabels(event); setShowSettings(false); }} />
+            </div>
+          </section>
+        </div>
       )}
     </section>
   );
@@ -672,10 +694,12 @@ function TaskPanel({
   tasks,
   onAddTask,
   onToggleTask,
+  onDeleteTask,
 }: {
   tasks: Task[];
   onAddTask: (event: FormEvent<HTMLFormElement>) => void;
   onToggleTask: (id: number) => void;
+  onDeleteTask: (id: number) => void;
 }) {
   return (
     <div className="mt-5 rounded-lg border border-oxblood/10 bg-white p-4 shadow-sm">
@@ -689,20 +713,24 @@ function TaskPanel({
       </form>
       <div className="mt-4 space-y-2">
         {tasks.map((task) => (
-          <button
+          <div
             key={task.id}
-            onClick={() => onToggleTask(task.id)}
             className="flex w-full items-center gap-3 rounded-lg border border-oxblood/10 p-3 text-right"
           >
-            <span
+            <button type="button" onClick={() => onToggleTask(task.id)} className="flex min-w-0 flex-1 items-center gap-3 text-right">
+              <span
               className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border ${
                 task.done ? "border-oxblood bg-oxblood text-white" : "border-oxblood/20 text-transparent"
               }`}
-            >
-              <Check size={15} />
-            </span>
-            <span className={task.done ? "text-oxblood-dark/40 line-through" : ""}>{task.text}</span>
-          </button>
+              >
+                <Check size={15} />
+              </span>
+              <span className={task.done ? "text-oxblood-dark/40 line-through" : ""}>{task.text}</span>
+            </button>
+            <button type="button" onClick={() => onDeleteTask(task.id)} className="rounded-md p-2 text-oxblood/55 hover:bg-blush hover:text-oxblood" aria-label="حذف تسک">
+              <Trash2 size={17} />
+            </button>
+          </div>
         ))}
         {!tasks.length && <p className="text-sm text-oxblood-dark/45">هنوز تسکی ثبت نشده.</p>}
       </div>
