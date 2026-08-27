@@ -54,7 +54,14 @@ const DEFAULT_SETTINGS: AppSettings = { id: "settings", columnLabels: DEFAULT_LA
 const now = () => new Date().toISOString();
 const money = (value: number) => value.toLocaleString("fa-IR");
 const latestPurchase = (product: Product) => product.invoices[0]?.price ?? product.price;
-const parseAmount = (value: unknown) => Number(String(value ?? "").replace(/[٬،,\s]/g, "").replace(/[^0-9.-]/g, "")) || 0;
+const parseAmount = (value: unknown) => {
+  const normalized = String(value ?? "")
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[٬،,\s]/g, "")
+    .replace(/[^0-9.-]/g, "");
+  return Number(normalized) || 0;
+};
 const date = (value: string) =>
   new Date(value).toLocaleDateString("fa-IR", { year: "numeric", month: "2-digit", day: "2-digit" });
 const sale = (product: Product, index: number) =>
@@ -261,7 +268,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const invoice = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected) return;
-    const value = Number(new FormData(event.currentTarget).get("invoice"));
+    const value = parseAmount(new FormData(event.currentTarget).get("invoice"));
     if (value < 1) return;
     const registeredAt = now();
     const nextSelected = {
@@ -388,7 +395,7 @@ function Landing({ navigate }: { navigate: (nextView: View, path: string) => voi
       <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl flex-col justify-center">
         <p className="text-lg font-black text-oxblood">بازارک</p>
         <p className="mt-2 text-sm text-oxblood-dark/65">نسخه آسیاب صداقت</p>
-        <h1 className="mt-12 text-3xl font-black leading-tight sm:mt-16 sm:text-5xl">کدام بخش را می‌خواهید؟</h1>
+        <h1 className="mt-12 text-2xl font-black leading-tight sm:mt-16 sm:text-4xl">کدام بخش را می‌خواهید؟</h1>
         <div className="mt-8 grid gap-3 sm:grid-cols-3 sm:gap-4">
           <button
             onClick={() => {
@@ -840,6 +847,8 @@ function Catalog({
           >
             <b className="block text-lg font-black">{product.name}</b>
             {product.description && <p className="mt-2 text-sm text-oxblood-dark/55">{product.description}</p>}
+            <p className="mt-3 text-xs font-bold text-oxblood">آخرین خرید: {money(latestPurchase(product))} تومان</p>
+            <p className="mt-1 text-[10px] text-oxblood-dark/45">هر ۱۰۰۰ گرم</p>
             <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
               {labels.map((label, index) => (
                 <span key={label} className="rounded-lg bg-blush p-2">
@@ -914,8 +923,13 @@ function Detail({
               <input
                 required
                 name="invoice"
-                type="number"
+                type="text"
+                inputMode="numeric"
                 placeholder="قیمت فاکتور خرید جدید"
+                onChange={(event) => {
+                  const value = parseAmount(event.currentTarget.value);
+                  event.currentTarget.value = value ? money(value) : "";
+                }}
                 className="rounded-lg border border-oxblood/15 p-2"
               />
               <button className="rounded-lg bg-oxblood px-4 py-2 font-bold text-white">ثبت فاکتور</button>
