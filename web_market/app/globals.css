@@ -4,7 +4,7 @@
 
 @font-face {
   font-family: "Vazirmatn";
-  src: url("/fonts/Vazirmatn.woff2") format("woff2");
+  src: url("/bazarak/fonts/Vazirmatn.woff2") format("woff2"), url("/fonts/Vazirmatn.woff2") format("woff2");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -29,6 +29,11 @@ textarea {
 
 button {
   cursor: pointer;
+}
+
+/* Keep the Persian interface lighter and easier to scan. */
+.font-black {
+  font-weight: 700;
 }
 
 input:focus,
