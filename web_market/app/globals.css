@@ -33,7 +33,7 @@ button {
 
 /* Keep the Persian interface lighter and easier to scan. */
 .font-black {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 input:focus,
