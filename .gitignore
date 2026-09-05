@@ -1,0 +1,14 @@
+# Next.js build output
+web_market/.next/
+web_market/out/
+
+# Dependencies
+web_market/node_modules/
+
+# Environment files
+web_market/.env*
+!web_market/.env.example
+
+# Logs and local files
+*.log
+.DS_Store

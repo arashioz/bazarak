@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { seedProductRows } from "../data/seedProductRows";
 import inventory from "../data/inventory.json";
@@ -86,9 +87,53 @@ const levelPrice = (product: Product, level: ProductLevel) => {
   return level.roundingMode === "up" ? Math.ceil(exact / rounding) * rounding : level.roundingMode === "down" ? Math.floor(exact / rounding) * rounding : Math.round(exact);
 };
 
-const excelSeed = (): Product[] => {
+const normalizeProductName = (value: string) =>
+  value
+    .trim()
+    .replace(/[يى]/g, "ی")
+    .replace(/ك/g, "ک")
+    .replace(/\s+/g, " ");
+
+const applyFeaturedDefaults = (products: Product[]): Product[] => {
   const createdAt = now();
-  return inventory.map((row) => ({
+  const productsByName = new Map(products.map((product) => [normalizeProductName(product.name), product]));
+
+  // The supplied price sheet is the curated default list of featured products.
+  seedProductRows.forEach((row) => {
+    const key = normalizeProductName(row.name);
+    const existing = productsByName.get(key);
+    const featuredProduct: Product = existing
+      ? {
+          ...existing,
+          featured: true,
+        }
+      : {
+          id: 1_000_000_000 + row.id,
+          name: row.name,
+          price: row.price,
+          unit: "کیلوگرم",
+          stock: 0,
+          active: true,
+          featured: true,
+          updated: createdAt,
+          catalogUrl: "",
+          description: "",
+          invoices: row.price > 0 ? [{ price: row.price, registeredAt: createdAt }] : [],
+          percentages: [row.percent, row.percent, row.percent, row.percent],
+          rounding: [1000, 1000, 1000, 1000],
+          roundingEnabled: [true, true, true, true],
+          fixedPrices: [],
+          categoryIds: [],
+        };
+
+    productsByName.set(key, featuredProduct);
+  });
+
+  return Array.from(productsByName.values());
+};
+
+const excelSeed = (): Product[] =>
+  applyFeaturedDefaults(inventory.map((row) => ({
     id: row.id,
     name: row.name,
     price: row.purchasePrice,
@@ -96,17 +141,16 @@ const excelSeed = (): Product[] => {
     stock: row.stock,
     active: row.active,
     featured: false,
-    updated: row.updated || createdAt,
+    updated: row.updated || now(),
     catalogUrl: "",
     description: "",
-    invoices: row.purchasePrice > 0 ? [{ price: row.purchasePrice, registeredAt: createdAt }] : [],
+    invoices: row.purchasePrice > 0 ? [{ price: row.purchasePrice, registeredAt: now() }] : [],
     percentages: [0, 0, 0, 0],
     rounding: [1000, 1000, 1000, 1000],
     roundingEnabled: [true, true, true, true],
     fixedPrices: row.priceLevels,
     categoryIds: [],
-  }));
-};
+  })));
 
 const normalizeProducts = (raw: unknown): Product[] => {
   if (!Array.isArray(raw)) return [];
@@ -184,14 +228,6 @@ const replaceAll = async <T,>(storeName: string, items: T[]) => {
   });
 };
 
-const readJsonDatabase = async () => {
-  const response = await fetch("/api/database", { cache: "no-store" });
-  if (!response.ok) throw new Error("database unavailable");
-  return response.json() as Promise<{ products?: unknown; settings?: AppSettings | null; tasks?: Task[] }>;
-};
-const saveJsonSection = (section: "products" | "settings" | "tasks", data: unknown) =>
-  fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section, data }) }).catch(() => undefined);
-
 export default function BazarekApp({ initialView }: { initialView: View }) {
   const router = useRouter();
   const [view, setView] = useState<View>(initialView);
@@ -218,18 +254,16 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       }
 
       const seeded = excelSeed();
-      const jsonDatabase = await readJsonDatabase().catch(() => null);
       const dbProducts = normalizeProducts(await readAll<Product>(PRODUCT_STORE));
       const dbSettings = await readAll<AppSettings>(SETTINGS_STORE);
       const dbTasks = await readAll<Task>(TASK_STORE);
       const legacy = normalizeProducts(JSON.parse(localStorage.getItem("bazarek-products") || "[]"));
-      const jsonProducts = normalizeProducts(jsonDatabase?.products);
-      const nextProducts = jsonProducts.length ? jsonProducts : dbProducts.length ? dbProducts : mergeProducts(seeded, legacy);
+      const nextProducts = applyFeaturedDefaults(dbProducts.length ? dbProducts : mergeProducts(seeded, legacy));
 
       if (!cancelled) {
         setProducts(nextProducts);
-        setSettings(jsonDatabase?.settings || dbSettings[0] || DEFAULT_SETTINGS);
-        setTasks(jsonDatabase?.tasks || dbTasks);
+        setSettings(dbSettings[0] || DEFAULT_SETTINGS);
+        setTasks(dbTasks);
         setDbReady(true);
         if (initialView === "landing" && localStorage.getItem("bazarek-role") === "user") {
           setView("user");
@@ -254,15 +288,15 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   }, [initialView, router]);
 
   useEffect(() => {
-    if (dbReady) { void replaceAll(PRODUCT_STORE, products); void saveJsonSection("products", products); }
+    if (dbReady) { void replaceAll(PRODUCT_STORE, products); }
   }, [dbReady, products]);
 
   useEffect(() => {
-    if (dbReady) { void replaceAll(SETTINGS_STORE, [settings]); void saveJsonSection("settings", settings); }
+    if (dbReady) { void replaceAll(SETTINGS_STORE, [settings]); }
   }, [dbReady, settings]);
 
   useEffect(() => {
-    if (dbReady) { void replaceAll(TASK_STORE, tasks); void saveJsonSection("tasks", tasks); }
+    if (dbReady) { void replaceAll(TASK_STORE, tasks); }
   }, [dbReady, tasks]);
 
   const navigate = (nextView: View, path: string) => {
@@ -574,7 +608,7 @@ function Header({
           />
         </div>
         <div className="flex gap-3 text-sm font-bold text-oxblood">
-          <a href="/customers" className="rounded-lg px-2 py-1 hover:bg-blush">مشتریان</a>
+          <Link href="/customers" className="rounded-lg px-2 py-1 hover:bg-blush">مشتریان</Link>
           <button onClick={() => navigate("catalog", "/catalog")}>کاتالوگ</button>
           <button onClick={() => navigate("login", "/modir/login")}>ورود مدیر</button>
           <button onClick={() => navigate("landing", "/")}>تغییر نقش</button>
@@ -815,7 +849,7 @@ function BulkPricingSheet({ count, onClose, onApply }: { count: number; onClose:
   const units = ["بسته", "عدد", "مثقال", "لیتر", "کارتن", "گرم", "کیلوگرم"];
   const [levels, setLevels] = useState<ProductLevel[]>([{ id: "bulk-1", label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }]);
   const update = (index: number, patch: Partial<ProductLevel>) => setLevels(levels.map((level, itemIndex) => itemIndex === index ? { ...level, ...patch } : level));
-  return <div className="fixed inset-0 z-30 flex items-end justify-center"><button onClick={onClose} className="absolute inset-0 bg-oxblood-dark/45" aria-label="بستن"/><section className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-5xl sm:p-8"><button onClick={onClose} className="absolute left-5 top-5 text-oxblood"><X/></button><h2 className="text-2xl font-black">مرحله ۲ · قیمت‌گذاری گروهی</h2><p className="mt-2 text-sm text-oxblood-dark/60">سطح‌های زیر روی {count.toLocaleString("fa-IR")} محصول انتخاب‌شده اعمال می‌شوند. قیمت هر محصول با قیمت خرید همان محصول محاسبه می‌شود.</p><p className="mt-2 text-xs text-oxblood-dark/50">ترتیب فیلدها: نام سطح، مقدار، واحد، درصد سود، مبلغ رند، نوع رند.</p><div className="mt-5 space-y-3">{levels.map((level, index) => <div key={level.id} className="grid gap-2 rounded-xl border border-oxblood/10 bg-blush p-3 sm:grid-cols-7"><input value={level.label} onChange={(event) => update(index, { label: event.target.value })} placeholder="مثلاً خرید عمده" className="rounded-lg border border-oxblood/15 p-2"/><input value={level.quantity} onChange={(event) => update(index, { quantity: event.target.value })} placeholder="مثلاً ۵" className="rounded-lg border border-oxblood/15 p-2"/><select value={level.unit} onChange={(event) => update(index, { unit: event.target.value })} className="rounded-lg border border-oxblood/15 bg-white p-2" aria-label="واحد اندازه‌گیری"><option value="" disabled>واحد را انتخاب کنید</option>{units.map((unit) => <option key={unit}>{unit}</option>)}</select><input value={level.percent ?? ""} onChange={(event) => update(index, { percent: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="درصد سود" type="number" className="rounded-lg border border-oxblood/15 p-2"/><input value={level.rounding ?? ""} onChange={(event) => update(index, { rounding: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="مثلاً ۱۰۰۰" type="number" className="rounded-lg border border-oxblood/15 p-2"/><select value={level.roundingMode || "none"} onChange={(event) => update(index, { roundingMode: event.target.value as ProductLevel["roundingMode"] })} className="rounded-lg border border-oxblood/15 bg-white p-2" aria-label="نوع رند"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select><button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded-lg border border-oxblood/15 text-sm text-oxblood">حذف</button></div>)}</div><div className="mt-4 flex flex-wrap gap-2"><button onClick={() => setLevels([...levels, { id: `bulk-${Date.now()}`, label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }])} className="rounded-lg border border-oxblood/20 px-4 py-2 font-bold text-oxblood">+ افزودن سطح</button><button disabled={!levels.length} onClick={() => onApply(levels)} className="rounded-lg bg-oxblood px-5 py-2 font-bold text-white disabled:opacity-40">اعمال روی محصولات انتخاب‌شده</button></div></section></div>;
+  return <div className="fixed inset-0 z-30 flex items-end justify-center"><button onClick={onClose} className="absolute inset-0 bg-oxblood-dark/45" aria-label="بستن"/><section className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-5xl sm:p-8"><button onClick={onClose} className="absolute left-5 top-5 text-oxblood"><X/></button><h2 className="text-2xl font-black">مرحله ۲ · قیمت‌گذاری گروهی</h2><p className="mt-2 text-sm text-oxblood-dark/60">سطح‌های زیر روی {count.toLocaleString("fa-IR")} محصول انتخاب‌شده اعمال می‌شوند.</p><div className="mt-5 rounded-lg border border-oxblood/10 bg-white p-3"><div className="flex items-center justify-between"><h4 className="font-black">سطح‌های قیمت‌گذاری</h4><button type="button" onClick={() => setLevels([...levels, { id: `bulk-${Date.now()}`, label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }])} className="rounded-lg border border-oxblood/20 px-3 py-1.5 text-xs font-bold text-oxblood">+ افزودن سطح</button></div><p className="mt-2 text-xs text-oxblood-dark/55">درصد سود برای هر محصول از قیمت خرید خودش محاسبه می‌شود. وارد کردن قیمت فروش، آن را به‌صورت قیمت ثابت برای همهٔ محصولات اعمال می‌کند.</p><div className="mt-3 space-y-2">{levels.map((level, index) => <div key={level.id} className="grid gap-2 rounded-lg bg-blush p-2 sm:grid-cols-8"><input value={level.label} onChange={(event) => update(index, { label: event.target.value })} placeholder="نام سطح" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.quantity} onChange={(event) => update(index, { quantity: event.target.value })} placeholder="مقدار" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.unit} onChange={(event) => update(index, { unit: event.target.value })} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="" disabled>واحد</option>{units.map((unit) => <option key={unit}>{unit}</option>)}</select><input value={level.percent ?? ""} onChange={(event) => update(index, { percent: event.target.value === "" ? undefined : Number(event.target.value), price: 0 })} placeholder="درصد سود" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.price || ""} onChange={(event) => update(index, { price: parseAmount(event.target.value), percent: undefined })} placeholder="قیمت فروش" type="text" inputMode="numeric" className="rounded border border-oxblood/15 bg-white p-2 text-xs font-bold text-oxblood"/><input value={level.rounding ?? ""} onChange={(event) => update(index, { rounding: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="مبلغ رند" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.roundingMode || "none"} onChange={(event) => update(index, { roundingMode: event.target.value as ProductLevel["roundingMode"] })} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select><button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button></div>)}</div></div><div className="mt-4 flex flex-wrap gap-2"><button disabled={!levels.length} onClick={() => onApply(levels)} className="rounded-lg bg-oxblood px-5 py-2 font-bold text-white disabled:opacity-40">اعمال روی محصولات انتخاب‌شده</button></div></section></div>;
 }
 
 function ColumnLabelForm({
@@ -988,10 +1022,10 @@ function Catalog({
           <h1 className="text-2xl font-black text-oxblood">کاتالوگ بازارک</h1>
           <p className="mt-1 text-sm text-oxblood-dark/55">نسخه آسیاب صداقت، {products.length} محصول</p>
         </div>
-        <a href="/catalog" className="inline-flex items-center gap-2 rounded-lg border border-oxblood/15 px-4 py-2 text-sm font-bold text-oxblood">
+        <Link href="/catalog" className="inline-flex items-center gap-2 rounded-lg border border-oxblood/15 px-4 py-2 text-sm font-bold text-oxblood">
           لینک کاتالوگ
           <ExternalLink size={15} />
-        </a>
+        </Link>
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {products.map((product) => (
@@ -1038,6 +1072,17 @@ function Detail({
   const units = ["بسته", "عدد", "مثقال", "لیتر", "کارتن", "گرم", "کیلوگرم"];
   const [customUnit, setCustomUnit] = useState(!units.includes(product.unit));
   const [levels, setLevels] = useState<ProductLevel[]>(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) })));
+  const levelBasePrice = (level: ProductLevel) => latestPurchase(product) * (parseAmount(level.quantity) || 1);
+  const updateLevelPercent = (index: number, percent: number | undefined) => {
+    setLevels(levels.map((level, levelIndex) => levelIndex === index
+      ? { ...level, percent, price: percent === undefined ? 0 : Math.round(levelBasePrice(level) * (1 + percent / 100)) }
+      : level));
+  };
+  const updateLevelPrice = (index: number, price: number) => {
+    setLevels(levels.map((level, levelIndex) => levelIndex === index
+      ? { ...level, price, percent: levelBasePrice(level) > 0 ? Number((((price / levelBasePrice(level)) - 1) * 100).toFixed(2)) : undefined }
+      : level));
+  };
   return (
     <div className="fixed inset-0 z-20 flex items-end justify-center">
       <div onClick={onClose} className="absolute inset-0 bg-oxblood-dark/45" />
@@ -1073,29 +1118,33 @@ function Detail({
         </div>
         {admin && (
           <>
+            <form onSubmit={(event) => { event.preventDefault(); const value = parseAmount(new FormData(event.currentTarget).get("invoice")); if (value) { setPurchaseValue(value); setConfirmPurchase(true); } }} className="mt-5 rounded-lg border border-oxblood/10 bg-white p-3 shadow-sm sm:grid sm:grid-cols-[1fr_auto] sm:items-end sm:gap-2">
+              <label className="block text-xs font-bold">ثبت قیمت خرید جدید
+                <input required name="invoice" type="text" inputMode="numeric" placeholder="قیمت فاکتور خرید جدید" onChange={(event) => { const value = parseAmount(event.currentTarget.value); event.currentTarget.value = value ? money(value) : ""; }} className="mt-1 w-full rounded-lg border border-oxblood/15 p-2" />
+              </label>
+              <button className="mt-2 rounded-lg bg-oxblood px-4 py-2 font-bold text-white sm:mt-0">ثبت قیمت خرید</button>
+            </form>
             <form onSubmit={onUpdatePricing} className="mt-5 rounded-lg border border-oxblood/10 bg-blush p-3">
               <h3 className="font-black">ویرایش مشخصات و قیمت‌گذاری محصول</h3>
             <div className="mt-3"><label className="text-xs">واحد اندازه‌گیری<select name="unit" value={customUnit ? "__custom__" : product.unit} onChange={(event) => setCustomUnit(event.target.value === "__custom__")} className="mt-1 w-full rounded border border-oxblood/15 bg-white p-2">{units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}<option value="__custom__">دستی ›</option></select>{customUnit && <input name="unitManual" defaultValue={units.includes(product.unit) ? "" : product.unit} placeholder="واحد را بنویسید" className="mt-2 w-full rounded border border-oxblood/15 p-2" />}</label></div>
               <label className="mt-3 block text-xs">توضیحات محصول<textarea name="description" defaultValue={product.description} rows={3} placeholder="توضیحات، نکات خرید یا مشخصات محصول..." className="mt-1 w-full rounded border border-oxblood/15 bg-white p-2" /></label>
               <input type="hidden" name="levels" value={JSON.stringify(levels)} />
-              <div className="mt-4 rounded-lg border border-oxblood/10 bg-white p-3"><div className="flex items-center justify-between"><h4 className="font-black">سطح‌های اختصاصی این محصول</h4><button type="button" onClick={() => setLevels([...levels, { id: `${Date.now()}-${levels.length}`, label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }])} className="rounded-lg border border-oxblood/20 px-3 py-1.5 text-xs font-bold text-oxblood">+ افزودن سطح</button></div><p className="mt-2 text-xs text-oxblood-dark/55">قیمت هر سطح از قیمت خرید × مقدار × درصد محاسبه می‌شود.</p><div className="mt-3 space-y-2">{levels.map((level, index) => <div key={level.id} className="grid gap-2 rounded-lg bg-blush p-2 sm:grid-cols-7"><input value={level.label} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} placeholder="نام سطح" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.quantity} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: event.target.value } : item))} placeholder="مقدار" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.unit} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, unit: event.target.value } : item))} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="" disabled>واحد</option>{units.map((unit) => <option key={unit}>{unit}</option>)}</select><input value={level.percent ?? ""} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, percent: event.target.value === "" ? undefined : Number(event.target.value) } : item))} placeholder="درصد" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.rounding ?? ""} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, rounding: event.target.value === "" ? undefined : Number(event.target.value) } : item))} placeholder="مبلغ رند" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.roundingMode || "none"} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, roundingMode: event.target.value as ProductLevel["roundingMode"] } : item))} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select><button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button></div>)}</div></div>
+              <div className="mt-4 rounded-lg border border-oxblood/10 bg-white p-3">
+                <div className="flex items-center justify-between"><h4 className="font-black">سطح‌های اختصاصی این محصول</h4><button type="button" onClick={() => setLevels([...levels, { id: `${Date.now()}-${levels.length}`, label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }])} className="rounded-lg border border-oxblood/20 px-3 py-1.5 text-xs font-bold text-oxblood">+ افزودن سطح</button></div>
+                <p className="mt-2 text-xs text-oxblood-dark/55">درصد یا قیمت فروش را وارد کنید؛ فیلد مقابل همان لحظه محاسبه می‌شود.</p>
+                <div className="mt-3 space-y-2">{levels.map((level, index) => <div key={level.id} className="grid gap-2 rounded-lg bg-blush p-2 sm:grid-cols-8">
+                  <input value={level.label} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} placeholder="نام سطح" className="rounded border border-oxblood/15 p-2 text-xs" />
+                  <input value={level.quantity} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: event.target.value } : item))} placeholder="مقدار" className="rounded border border-oxblood/15 p-2 text-xs" />
+                  <select value={level.unit} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, unit: event.target.value } : item))} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="" disabled>واحد</option>{units.map((unit) => <option key={unit}>{unit}</option>)}</select>
+                  <input value={level.percent ?? ""} onChange={(event) => updateLevelPercent(index, event.target.value === "" ? undefined : Number(event.target.value))} placeholder="درصد سود" type="number" className="rounded border border-oxblood/15 p-2 text-xs" />
+                  <input value={level.price || ""} onChange={(event) => updateLevelPrice(index, parseAmount(event.target.value))} placeholder="قیمت فروش" type="text" inputMode="numeric" className="rounded border border-oxblood/15 bg-white p-2 text-xs font-bold text-oxblood" />
+                  <input value={level.rounding ?? ""} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, rounding: event.target.value === "" ? undefined : Number(event.target.value) } : item))} placeholder="مبلغ رند" type="number" className="rounded border border-oxblood/15 p-2 text-xs" />
+                  <select value={level.roundingMode || "none"} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, roundingMode: event.target.value as ProductLevel["roundingMode"] } : item))} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select>
+                  <button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button>
+                </div>)}</div>
+              </div>
               {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" defaultChecked={product.categoryIds.includes(category.id)} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
               <button className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white">ذخیره قیمت‌گذاری</button>
-            </form>
-            <form onSubmit={(event) => { event.preventDefault(); const value = parseAmount(new FormData(event.currentTarget).get("invoice")); if (value) { setPurchaseValue(value); setConfirmPurchase(true); } }} className="mt-5 grid gap-2 sm:grid-cols-[1fr_auto]">
-              <input
-                required
-                name="invoice"
-                type="text"
-                inputMode="numeric"
-                placeholder="قیمت فاکتور خرید جدید"
-                onChange={(event) => {
-                  const value = parseAmount(event.currentTarget.value);
-                  event.currentTarget.value = value ? money(value) : "";
-                }}
-                className="rounded-lg border border-oxblood/15 p-2"
-              />
-              <button className="rounded-lg bg-oxblood px-4 py-2 font-bold text-white">ثبت قیمت خرید</button>
             </form>
             {confirmPurchase && <div className="fixed inset-0 z-30 grid place-items-center bg-oxblood-dark/45 p-4"><section className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><h3 className="text-lg font-black">نوع ثبت قیمت خرید</h3><p className="mt-2 text-sm text-oxblood-dark/60">{money(purchaseValue)} تومان را چگونه ثبت کنیم؟</p><button onClick={() => { onInvoice(purchaseValue, false); setConfirmPurchase(false); }} className="mt-4 w-full rounded-lg border border-oxblood/25 p-3 font-bold text-oxblood">فقط به‌روزرسانی قیمت</button><button onClick={() => { onInvoice(purchaseValue, true); setConfirmPurchase(false); }} className="mt-2 w-full rounded-lg bg-oxblood p-3 font-bold text-white">ثبت به‌عنوان فاکتور جدید</button><button onClick={() => setConfirmPurchase(false)} className="mt-3 w-full text-sm text-oxblood-dark/55">انصراف</button></section></div>}
             <h3 className="mt-5 flex items-center gap-2 font-black">
