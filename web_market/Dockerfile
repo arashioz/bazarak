@@ -8,9 +8,18 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine
+FROM node:20-alpine
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/out /usr/share/nginx/html
+ENV NODE_ENV=production
+ENV PORT=3000
 
-EXPOSE 80
+WORKDIR /app
+
+COPY --from=build /app/public ./public
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/app/data/database.json ./app/data/database.json
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]

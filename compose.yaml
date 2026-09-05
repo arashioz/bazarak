@@ -4,5 +4,7 @@ services:
       context: ./web_market
       dockerfile: Dockerfile
     ports:
-      - "8080:80"
+      - "3000:3000"
+    volumes:
+      - ./web_market/app/data:/app/app/data
     restart: unless-stopped

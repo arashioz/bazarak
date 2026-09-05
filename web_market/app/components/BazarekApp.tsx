@@ -54,11 +54,6 @@ type Task = { id: number; text: string; done: boolean };
 type View = "landing" | "user" | "login" | "admin" | "catalog";
 type AdminTab = "products" | "tasks";
 
-const DB_NAME = "bazarek-browser-db";
-const DB_VERSION = 3;
-const PRODUCT_STORE = "products";
-const SETTINGS_STORE = "settings";
-const TASK_STORE = "tasks";
 const DEFAULT_LABELS = ["سطح ۱", "سطح ۲", "سطح ۳", "سطح ۴"];
 const DEFAULT_SETTINGS: AppSettings = { id: "settings", columnLabels: DEFAULT_LABELS, categories: [], browseMode: "sections" };
 
@@ -189,44 +184,17 @@ const mergeProducts = (base: Product[], saved: Product[]) => {
   return Array.from(byName.values());
 };
 
-const openDb = () =>
-  new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(PRODUCT_STORE)) db.createObjectStore(PRODUCT_STORE, { keyPath: "id" });
-      if (!db.objectStoreNames.contains(SETTINGS_STORE)) db.createObjectStore(SETTINGS_STORE, { keyPath: "id" });
-      if (!db.objectStoreNames.contains(TASK_STORE)) db.createObjectStore(TASK_STORE, { keyPath: "id" });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+type ServerDatabase = { products?: unknown; settings?: AppSettings; tasks?: Task[] };
 
-const readAll = async <T,>(storeName: string) => {
-  const db = await openDb();
-  return new Promise<T[]>((resolve, reject) => {
-    const transaction = db.transaction(storeName, "readonly");
-    const request = transaction.objectStore(storeName).getAll();
-    request.onsuccess = () => resolve(request.result as T[]);
-    request.onerror = () => reject(request.error);
-    transaction.oncomplete = () => db.close();
-  });
+const readJsonDatabase = async () => {
+  const response = await fetch("/api/database", { cache: "no-store" });
+  if (!response.ok) throw new Error("database unavailable");
+  return response.json() as Promise<ServerDatabase>;
 };
 
-const replaceAll = async <T,>(storeName: string, items: T[]) => {
-  const db = await openDb();
-  return new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(storeName, "readwrite");
-    const store = transaction.objectStore(storeName);
-    store.clear();
-    items.forEach((item) => store.put(item));
-    transaction.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    transaction.onerror = () => reject(transaction.error);
-  });
-};
+const saveJsonSection = (section: "products" | "settings" | "tasks", data: unknown) =>
+  fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section, data }) })
+    .catch(() => undefined);
 
 export default function BazarekApp({ initialView }: { initialView: View }) {
   const router = useRouter();
@@ -253,17 +221,13 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         window.setTimeout(() => setShowIntro(false), 1800);
       }
 
-      const seeded = excelSeed();
-      const dbProducts = normalizeProducts(await readAll<Product>(PRODUCT_STORE));
-      const dbSettings = await readAll<AppSettings>(SETTINGS_STORE);
-      const dbTasks = await readAll<Task>(TASK_STORE);
-      const legacy = normalizeProducts(JSON.parse(localStorage.getItem("bazarek-products") || "[]"));
-      const nextProducts = applyFeaturedDefaults(dbProducts.length ? dbProducts : mergeProducts(seeded, legacy));
+      const database = await readJsonDatabase();
+      const nextProducts = normalizeProducts(database.products);
 
       if (!cancelled) {
         setProducts(nextProducts);
-        setSettings(dbSettings[0] || DEFAULT_SETTINGS);
-        setTasks(dbTasks);
+        setSettings(database.settings || DEFAULT_SETTINGS);
+        setTasks(database.tasks || []);
         setDbReady(true);
         if (initialView === "landing" && localStorage.getItem("bazarek-role") === "user") {
           setView("user");
@@ -271,13 +235,11 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         }
       }
 
-      if (!dbProducts.length) await replaceAll(PRODUCT_STORE, nextProducts);
-      if (!dbSettings.length) await replaceAll(SETTINGS_STORE, [DEFAULT_SETTINGS]);
     };
 
     boot().catch(() => {
       if (!cancelled) {
-        setProducts(excelSeed());
+        setError("اتصال به دیتابیس سرور برقرار نشد.");
         setDbReady(true);
       }
     });
@@ -288,15 +250,15 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   }, [initialView, router]);
 
   useEffect(() => {
-    if (dbReady) { void replaceAll(PRODUCT_STORE, products); }
+    if (dbReady) { void saveJsonSection("products", products); }
   }, [dbReady, products]);
 
   useEffect(() => {
-    if (dbReady) { void replaceAll(SETTINGS_STORE, [settings]); }
+    if (dbReady) { void saveJsonSection("settings", settings); }
   }, [dbReady, settings]);
 
   useEffect(() => {
-    if (dbReady) { void replaceAll(TASK_STORE, tasks); }
+    if (dbReady) { void saveJsonSection("tasks", tasks); }
   }, [dbReady, tasks]);
 
   const navigate = (nextView: View, path: string) => {

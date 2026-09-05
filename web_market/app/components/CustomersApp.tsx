@@ -3,26 +3,24 @@
 import { Phone, Search, Settings2, StickyNote, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import customers from "../data/customers.json";
 
-type Customer = (typeof customers)[number];
+type Customer = { id: number; name: string; group: string; mobile: string; phone: string; description: string; active: boolean; address: string };
 type CustomerNote = { id: number; text: string; updatedAt: string };
 type CustomerSettings = { categories: { id: string; name: string }[]; assignments: Record<number, string> };
-const STORE = "bazarek-customer-notes";
-const SETTINGS_STORE = "bazarek-customer-settings";
 
 const digits = (value: string) => value.replace(/\D/g, "");
 const callNumber = (customer: Customer) => customer.mobile || customer.phone;
 
 export default function CustomersApp() {
   const [query, setQuery] = useState("");
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [notes, setNotes] = useState<Record<number, CustomerNote>>({});
   const [selected, setSelected] = useState<Customer | null>(null);
   const [customerSettings, setCustomerSettings] = useState<CustomerSettings>({ categories: [], assignments: {} });
   const [categoryFilter, setCategoryFilter] = useState(""); const [showSettings, setShowSettings] = useState(false);
-  useEffect(() => { try { setNotes(JSON.parse(localStorage.getItem(STORE) || "{}")); setCustomerSettings(JSON.parse(localStorage.getItem(SETTINGS_STORE) || '{"categories":[],"assignments":{}}')); } catch {} }, []);
-  const saveCustomerSettings = (next: CustomerSettings) => { setCustomerSettings(next); localStorage.setItem(SETTINGS_STORE, JSON.stringify(next)); };
-  const saveNote = (id: number, text: string) => { const next = { ...notes, [id]: { id, text, updatedAt: new Date().toISOString() } }; setNotes(next); localStorage.setItem(STORE, JSON.stringify(next)); };
+  useEffect(() => { fetch("/api/database", { cache: "no-store" }).then((response) => response.ok ? response.json() : Promise.reject()).then((database) => { setCustomers(Array.isArray(database.customers) ? database.customers : []); setNotes(database.customerNotes || {}); setCustomerSettings(database.customerSettings || { categories: [], assignments: {} }); }).catch(() => undefined); }, []);
+  const saveCustomerSettings = (next: CustomerSettings) => { setCustomerSettings(next); void fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "customerSettings", data: next }) }); };
+  const saveNote = (id: number, text: string) => { const next = { ...notes, [id]: { id, text, updatedAt: new Date().toISOString() } }; setNotes(next); void fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "customerNotes", data: next }) }); };
   const list = useMemo(() => { const term = query.trim(); return customers.filter((customer) => (!term || `${customer.name} ${customer.group} ${customer.mobile} ${customer.phone}`.includes(term)) && (!categoryFilter || customerSettings.assignments[customer.id] === categoryFilter)); }, [query, categoryFilter, customerSettings]);
   return <main className="min-h-screen bg-blush p-4 text-oxblood-dark sm:p-6"><section className="mx-auto max-w-6xl"><header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-black text-oxblood"><Users /> مشتریان</h1><p className="mt-1 text-sm opacity-60">{customers.length.toLocaleString("fa-IR")} شخص</p></div><div className="flex gap-2"><button onClick={() => setShowSettings(true)} className="rounded-lg border border-oxblood/20 bg-white px-4 py-2 text-sm font-bold text-oxblood"><Settings2 className="inline" size={16}/> تنظیمات دسته</button><Link href="/modir/panel" className="rounded-lg border border-oxblood/20 bg-white px-4 py-2 text-sm font-bold text-oxblood">پنل مدیریت</Link></div></header><div className="mt-5 grid gap-2 sm:grid-cols-[1fr_220px]"><div className="relative"><Search className="absolute right-3 top-3 text-oxblood/45" size={18}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="جستجو نام، گروه یا شماره تماس" className="w-full rounded-lg border border-oxblood/15 bg-white py-3 pr-10 pl-3"/></div><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="rounded-lg border border-oxblood/15 bg-white p-3"><option value="">همه دسته‌ها</option>{customerSettings.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{list.map((customer) => { const number = callNumber(customer); const category = customerSettings.categories.find((item) => item.id === customerSettings.assignments[customer.id]); return <article key={customer.id} className="rounded-lg border border-oxblood/10 bg-white p-4 shadow-sm"><button onClick={() => setSelected(customer)} className="w-full text-right"><b className="block text-base">{customer.name}</b><small className="mt-1 block opacity-55">{category?.name || customer.group || "بدون گروه"}</small>{number && <strong dir="ltr" className="mt-3 block text-right text-oxblood">{number}</strong>}</button><div className="mt-3 flex gap-2"><a href={number ? `tel:${digits(number)}` : undefined} className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-bold ${number ? "bg-oxblood text-white" : "cursor-not-allowed bg-gray-100 text-gray-400"}`}><Phone size={16}/> تماس</a><button onClick={() => setSelected(customer)} className="rounded-lg border border-oxblood/20 px-3 py-2 text-sm font-bold text-oxblood">ویرایش</button></div></article>; })}</div></section>{showSettings && <CustomerCategorySettings settings={customerSettings} onClose={() => setShowSettings(false)} onSave={saveCustomerSettings}/>} {selected && <CustomerDetail customer={selected} note={notes[selected.id]?.text || ""} categories={customerSettings.categories} categoryId={customerSettings.assignments[selected.id] || ""} onCategory={(categoryId) => saveCustomerSettings({ ...customerSettings, assignments: { ...customerSettings.assignments, [selected.id]: categoryId } })} onClose={() => setSelected(null)} onSave={saveNote}/>}</main>;
 }
