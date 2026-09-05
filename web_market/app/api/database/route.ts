@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import customers from "../../data/customers.json";
 import { seedProductRows } from "../../data/seedProductRows";
 
 export const runtime = "nodejs";
 
-const databasePath = path.join(process.cwd(), "app", "data", "database.json");
+const seedDatabasePath = path.join(process.cwd(), "app", "data", "database.json");
+const databasePath = process.env.DATABASE_PATH || seedDatabasePath;
 const writableSections = new Set(["products", "settings", "tasks", "customerNotes", "customerSettings", "customers"]);
 let writeQueue = Promise.resolve();
 
@@ -60,7 +61,16 @@ const applyDefaults = (database: Database) => {
 };
 
 const readDatabase = async () => {
-  const database = JSON.parse(await readFile(databasePath, "utf8")) as Database;
+  let contents: string;
+  try {
+    contents = await readFile(databasePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    contents = await readFile(seedDatabasePath, "utf8");
+    await mkdir(path.dirname(databasePath), { recursive: true });
+    await writeFile(databasePath, contents);
+  }
+  const database = JSON.parse(contents) as Database;
   const changed = applyDefaults(database);
   if (changed) await writeDatabase(database);
   return database;

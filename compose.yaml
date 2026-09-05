@@ -5,6 +5,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    environment:
+      DATABASE_PATH: /data/database.json
     volumes:
-      - ./web_market/app/data:/app/app/data
+      - bazarek-data:/data
     restart: unless-stopped
+
+volumes:
+  bazarek-data:
