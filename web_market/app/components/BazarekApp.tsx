@@ -23,7 +23,7 @@ import {
 import * as XLSX from "xlsx";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { seedProductRows } from "../data/seedProductRows";
 import inventory from "../data/inventory.json";
 import CustomerDrawer from "./CustomerDrawer";
@@ -203,6 +203,7 @@ const saveJsonSection = (section: "products" | "settings" | "tasks", data: unkno
 
 export default function BazarekApp({ initialView }: { initialView: View }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [view, setView] = useState<View>(initialView);
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -267,6 +268,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
   const filtered = useMemo(() => products.filter((product) => product.name.includes(q.trim())), [products, q]);
   const visibleProducts = useMemo(() => [...filtered.filter((product) => !categoryFilter || product.categoryIds.includes(categoryFilter))].sort((a, b) => sortMode === "price-asc" ? a.price - b.price : sortMode === "price-desc" ? b.price - a.price : sortMode === "stock-desc" ? b.stock - a.stock : a.name.localeCompare(b.name, "fa")), [filtered, categoryFilter, sortMode]);
+  const catalogCategoryId = searchParams.get("category");
 
   const add = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -396,7 +398,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       <CustomerDrawer />
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         {view === "catalog" ? (
-          <Catalog products={visibleProducts.filter((product) => product.active)} labels={settings.columnLabels} onSelect={setSelected} />
+          <Catalog products={visibleProducts.filter((product) => product.active && (!catalogCategoryId || product.categoryIds.includes(catalogCategoryId)))} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} onSelect={setSelected} />
         ) : isAdmin ? (
           <Admin
             products={visibleProducts}
@@ -405,7 +407,6 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             browseMode={settings.browseMode || "sections"}
             tasks={tasks}
             onSelect={setSelected}
-            onToggleActive={(product) => saveProducts(products.map((item) => item.id === product.id ? { ...item, active: !item.active, updated: now() } : item))}
             onToggleFeatured={(product) => saveProducts(products.map((item) => item.id === product.id ? { ...item, featured: !item.featured, updated: now() } : item))}
             onOpenAdd={() => setShowAddProduct(true)}
             onImportExcel={importExcel}
@@ -436,6 +437,11 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
           admin={isAdmin}
           onClose={() => setSelected(null)}
           onInvoice={invoice}
+          onToggleActive={() => {
+            const nextSelected = { ...selected, active: !selected.active, updated: now() };
+            saveProducts(products.map((product) => product.id === selected.id ? nextSelected : product));
+            setSelected(nextSelected);
+          }}
           onUpdatePricing={(event) => {
             event.preventDefault();
             const form = new FormData(event.currentTarget);
@@ -599,7 +605,6 @@ function ProductSections({
   mode = "sections",
   admin,
   onSelect,
-  onToggleActive,
   onToggleFeatured,
   selectedIds,
   onToggleSelect,
@@ -609,7 +614,6 @@ function ProductSections({
   mode?: "sections" | "phonebook";
   admin?: boolean;
   onSelect: (product: Product) => void;
-  onToggleActive?: (product: Product) => void;
   onToggleFeatured?: (product: Product) => void;
   selectedIds?: number[];
   onToggleSelect?: (id: number) => void;
@@ -618,14 +622,14 @@ function ProductSections({
   const rest = products.filter((product) => !product.featured);
   const letters = Array.from(new Set(products.map((product) => product.name.trim().charAt(0)))).filter(Boolean).sort((a, b) => a.localeCompare(b, "fa"));
   if (mode === "phonebook") {
-    return <><h1 className="text-xl font-black sm:text-2xl">دفترچه محصولات</h1>{featured.length > 0 && <section className="mt-6"><h2 className="text-lg font-black text-oxblood">محصولات برتر</h2><Grid items={featured} labels={labels} admin={admin} onSelect={onSelect} onToggleActive={onToggleActive} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section>}{letters.map((letter) => { const items = products.filter((product) => !product.featured && product.name.trim().startsWith(letter)); return items.length ? <section key={letter} className="mt-8"><h2 className="border-b border-oxblood/15 pb-2 text-2xl font-black text-oxblood">{letter}</h2><Grid items={items} labels={labels} admin={admin} onSelect={onSelect} onToggleActive={onToggleActive} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section> : null; })}</>;
+    return <><h1 className="text-xl font-black sm:text-2xl">دفترچه محصولات</h1>{featured.length > 0 && <section className="mt-6"><h2 className="text-lg font-black text-oxblood">محصولات برتر</h2><Grid items={featured} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section>}{letters.map((letter) => { const items = products.filter((product) => !product.featured && product.name.trim().startsWith(letter)); return items.length ? <section key={letter} className="mt-8"><h2 className="border-b border-oxblood/15 pb-2 text-2xl font-black text-oxblood">{letter}</h2><Grid items={items} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section> : null; })}</>;
   }
   return (
     <>
       <h1 className="text-xl font-black sm:text-2xl">محصولات برتر</h1>
-      <Grid items={featured} labels={labels} admin={admin} onSelect={onSelect} onToggleActive={onToggleActive} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} />
+      <Grid items={featured} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} />
       <h2 className="mt-8 text-lg font-black sm:mt-10 sm:text-xl">سایر محصولات</h2>
-      <Grid items={rest} labels={labels} admin={admin} onSelect={onSelect} onToggleActive={onToggleActive} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} />
+      <Grid items={rest} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} />
     </>
   );
 }
@@ -635,7 +639,6 @@ function Grid({
   labels,
   admin,
   onSelect,
-  onToggleActive,
   onToggleFeatured,
   selectedIds,
   onToggleSelect,
@@ -644,7 +647,6 @@ function Grid({
   labels: string[];
   admin?: boolean;
   onSelect: (product: Product) => void;
-  onToggleActive?: (product: Product) => void;
   onToggleFeatured?: (product: Product) => void;
   selectedIds?: number[];
   onToggleSelect?: (id: number) => void;
@@ -656,7 +658,7 @@ function Grid({
           key={product.id}
           className="min-h-36 rounded-lg border border-oxblood/10 bg-white p-3 text-right shadow-sm transition hover:border-oxblood/45 sm:p-4"
         >
-          <div className="flex items-start justify-between gap-2">{admin ? <button type="button" onClick={() => onToggleFeatured?.(product)} className="rounded-full p-1 hover:bg-amber-50" aria-label={product.featured ? "حذف از محصولات برتر" : "افزودن به محصولات برتر"}><Star size={18} className={product.featured ? "fill-amber-400 text-amber-400" : "text-oxblood/30"} /></button> : <Star size={15} className={product.featured ? "fill-amber-400 text-amber-400" : "text-oxblood/20"} />}{admin && <div className="flex gap-2">{onToggleSelect && <input type="checkbox" checked={selectedIds?.includes(product.id) || false} onChange={() => onToggleSelect(product.id)} className="h-5 w-5 accent-oxblood" aria-label={`انتخاب ${product.name}`} />}<button type="button" onClick={() => onToggleActive?.(product)} className={`relative h-6 w-11 rounded-full transition ${product.active ? "bg-oxblood" : "bg-oxblood/20"}`} aria-label={product.active ? "غیرفعال کردن محصول" : "فعال کردن محصول"}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition ${product.active ? "left-1" : "left-6"}`} /></button></div>}</div>
+          <div className="flex items-start justify-between gap-2">{admin ? <button type="button" onClick={() => onToggleFeatured?.(product)} className="rounded-full p-1 hover:bg-amber-50" aria-label={product.featured ? "حذف از محصولات برتر" : "افزودن به محصولات برتر"}><Star size={18} className={product.featured ? "fill-amber-400 text-amber-400" : "text-oxblood/30"} /></button> : <Star size={15} className={product.featured ? "fill-amber-400 text-amber-400" : "text-oxblood/20"} />}{admin && onToggleSelect && <input type="checkbox" checked={selectedIds?.includes(product.id) || false} onChange={() => onToggleSelect(product.id)} className="h-5 w-5 accent-oxblood" aria-label={`انتخاب ${product.name}`} />}</div>
           <button onClick={() => onSelect(product)} className="w-full text-right">
           <b className="mt-4 block text-sm font-black leading-6 sm:text-base">{product.name}</b>
           <span className="mt-1 block text-[11px] text-oxblood-dark/45">{labels[0]}</span>
@@ -680,7 +682,6 @@ function Admin({
   browseMode,
   tasks,
   onSelect,
-  onToggleActive,
   onToggleFeatured,
   onOpenAdd,
   onImportExcel,
@@ -701,7 +702,6 @@ function Admin({
   browseMode: "sections" | "phonebook";
   tasks: Task[];
   onSelect: (product: Product) => void;
-  onToggleActive: (product: Product) => void;
   onToggleFeatured: (product: Product) => void;
   onOpenAdd: () => void;
   onImportExcel: (event: FormEvent<HTMLInputElement>) => void;
@@ -766,7 +766,7 @@ function Admin({
         <div className="mt-5">
           {selectingForCategory && <div className="flex flex-wrap items-center gap-2 rounded-xl border border-oxblood/10 bg-white p-3 shadow-sm"><b className="text-sm">مرحله ۱ · {selectedIds.length} محصول انتخاب شده</b><select value={bulkCategory} onChange={(event) => setBulkCategory(event.target.value)} className="rounded-lg border border-oxblood/15 p-2 text-sm"><option value="">دستهٔ موردنظر را انتخاب کنید</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select><button disabled={!bulkCategory || !selectedIds.length} onClick={() => { onAssignCategory(bulkCategory, selectedIds); setBulkCategory(""); }} className="rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white disabled:opacity-40">ثبت دسته برای انتخاب‌ها</button><button disabled={!selectedIds.length} onClick={() => setShowBulkPricing(true)} className="rounded-lg bg-oxblood-dark px-3 py-2 text-sm font-bold text-white disabled:opacity-40">مرحله ۲: قیمت‌گذاری</button><button onClick={() => setSelectedIds(selectedIds.length === products.length ? [] : products.map((product) => product.id))} className="rounded-lg border border-oxblood/20 px-3 py-2 text-sm font-bold text-oxblood">{selectedIds.length === products.length ? "لغو انتخاب همه" : "انتخاب همه"}</button></div>}
           <div className="mt-6">
-            <ProductSections products={products} labels={labels} mode={browseMode} admin onSelect={onSelect} onToggleActive={onToggleActive} onToggleFeatured={onToggleFeatured} selectedIds={selectingForCategory ? selectedIds : []} onToggleSelect={selectingForCategory ? toggleSelection : undefined} />
+            <ProductSections products={products} labels={labels} mode={browseMode} admin onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectingForCategory ? selectedIds : []} onToggleSelect={selectingForCategory ? toggleSelection : undefined} />
           </div>
           <p className="mt-3 min-h-5 text-xs text-oxblood">{error}</p>
         </div>
@@ -967,17 +967,22 @@ function AddProductSheet({
 function Catalog({
   products,
   labels,
+  categories,
+  selectedCategoryId,
   onSelect,
 }: {
   products: Product[];
   labels: string[];
+  categories: { id: string; name: string }[];
+  selectedCategoryId: string | null;
   onSelect: (product: Product) => void;
 }) {
+  const selectedCategory = categories.find((category) => category.id === selectedCategoryId);
   return (
     <section>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black text-oxblood">کاتالوگ بازارک</h1>
+          <h1 className="text-2xl font-black text-oxblood">{selectedCategory ? `کاتالوگ ${selectedCategory.name}` : "کاتالوگ بازارک"}</h1>
           <p className="mt-1 text-sm text-oxblood-dark/55">نسخه آسیاب صداقت، {products.length} محصول</p>
         </div>
         <Link href="/catalog" className="inline-flex items-center gap-2 rounded-lg border border-oxblood/15 px-4 py-2 text-sm font-bold text-oxblood">
@@ -985,6 +990,8 @@ function Catalog({
           <ExternalLink size={15} />
         </Link>
       </div>
+      {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><Link href="/catalog" className={`rounded-lg border px-3 py-2 text-sm font-bold ${!selectedCategoryId ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 text-oxblood"}`}>همه محصولات</Link>{categories.map((category) => <Link key={category.id} href={`/catalog?category=${encodeURIComponent(category.id)}`} className={`rounded-lg border px-3 py-2 text-sm font-bold ${selectedCategoryId === category.id ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 text-oxblood"}`}>{category.name}</Link>)}</div>}
+      {selectedCategory && <p className="mt-3 text-xs text-oxblood-dark/55">این لینک فقط محصولات دسته «{selectedCategory.name}» را نشان می‌دهد و قابل ارسال است.</p>}
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {products.map((product) => (
           <button
@@ -993,7 +1000,6 @@ function Catalog({
             className="rounded-lg border border-oxblood/10 bg-white p-4 text-right shadow-sm transition hover:border-oxblood/45"
           >
             <b className="block text-lg font-black">{product.name}</b>
-            {product.description && <p className="mt-2 text-sm text-oxblood-dark/55">{product.description}</p>}
             <p className="mt-3 text-xs font-bold text-oxblood">آخرین خرید: {money(latestPurchase(product))} تومان</p>
             <p className="mt-1 text-[10px] text-oxblood-dark/45">هر ۱۰۰۰ گرم</p>
             <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
@@ -1015,6 +1021,7 @@ function Detail({
   admin,
   onClose,
   onInvoice,
+  onToggleActive,
   onUpdatePricing,
 }: {
   product: Product;
@@ -1023,6 +1030,7 @@ function Detail({
   admin: boolean;
   onClose: () => void;
   onInvoice: (value: number, recordInvoice: boolean) => void;
+  onToggleActive: () => void;
   onUpdatePricing: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const [purchaseValue, setPurchaseValue] = useState(0);
@@ -1050,7 +1058,7 @@ function Detail({
         </button>
         <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-oxblood/20" />
         <h2 className="text-2xl font-black">{product.name}</h2>
-        {product.description && <p className="mt-3 rounded-lg bg-blush p-3 text-sm text-oxblood-dark/65">{product.description}</p>}
+        {admin && product.description && <p className="mt-3 rounded-lg bg-blush p-3 text-sm text-oxblood-dark/65">{product.description}</p>}
         {admin && <p className="mt-3 text-sm text-oxblood-dark/55">آخرین خرید از فروشنده: {money(latestPurchase(product))} تومان</p>}
         <p className="mt-1 flex items-center gap-2 text-xs text-oxblood-dark/45">
           <CalendarDays size={14} />
@@ -1076,6 +1084,7 @@ function Detail({
         </div>
         {admin && (
           <>
+            <button type="button" onClick={onToggleActive} className={`mt-4 rounded-lg px-4 py-2 text-sm font-bold ${product.active ? "bg-oxblood text-white" : "border border-oxblood/25 text-oxblood"}`}>{product.active ? "محصول فعال است · غیرفعال کردن" : "محصول غیرفعال است · فعال کردن"}</button>
             <form onSubmit={(event) => { event.preventDefault(); const value = parseAmount(new FormData(event.currentTarget).get("invoice")); if (value) { setPurchaseValue(value); setConfirmPurchase(true); } }} className="mt-5 rounded-lg border border-oxblood/10 bg-white p-3 shadow-sm sm:grid sm:grid-cols-[1fr_auto] sm:items-end sm:gap-2">
               <label className="block text-xs font-bold">ثبت قیمت خرید جدید
                 <input required name="invoice" type="text" inputMode="numeric" placeholder="قیمت فاکتور خرید جدید" onChange={(event) => { const value = parseAmount(event.currentTarget.value); event.currentTarget.value = value ? money(value) : ""; }} className="mt-1 w-full rounded-lg border border-oxblood/15 p-2" />
