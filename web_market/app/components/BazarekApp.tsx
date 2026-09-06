@@ -192,9 +192,14 @@ const readJsonDatabase = async () => {
   return response.json() as Promise<ServerDatabase>;
 };
 
-const saveJsonSection = (section: "products" | "settings" | "tasks", data: unknown) =>
-  fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section, data }) })
-    .catch(() => undefined);
+let databaseWriteQueue = Promise.resolve();
+const saveJsonSection = (section: "products" | "settings" | "tasks", data: unknown) => {
+  databaseWriteQueue = databaseWriteQueue.catch(() => undefined).then(async () => {
+    const response = await fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section, data }) });
+    if (!response.ok) throw new Error("database update failed");
+  });
+  return databaseWriteQueue;
+};
 
 export default function BazarekApp({ initialView }: { initialView: View }) {
   const router = useRouter();
@@ -202,7 +207,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [dbReady, setDbReady] = useState(false);
+  const [databaseLoaded, setDatabaseLoaded] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [q, setQ] = useState("");
@@ -210,6 +215,9 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const [error, setError] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState("name");
+  const saveProducts = (next: Product[]) => { setProducts(next); void saveJsonSection("products", next); };
+  const saveSettings = (next: AppSettings) => { setSettings(next); void saveJsonSection("settings", next); };
+  const saveTasks = (next: Task[]) => { setTasks(next); void saveJsonSection("tasks", next); };
 
   useEffect(() => {
     let cancelled = false;
@@ -228,7 +236,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         setProducts(nextProducts);
         setSettings(database.settings || DEFAULT_SETTINGS);
         setTasks(database.tasks || []);
-        setDbReady(true);
+        setDatabaseLoaded(true);
         if (initialView === "landing" && localStorage.getItem("bazarek-role") === "user") {
           setView("user");
           router.replace("/products");
@@ -240,7 +248,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     boot().catch(() => {
       if (!cancelled) {
         setError("اتصال به دیتابیس سرور برقرار نشد.");
-        setDbReady(true);
+        setDatabaseLoaded(true);
       }
     });
 
@@ -248,18 +256,6 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       cancelled = true;
     };
   }, [initialView, router]);
-
-  useEffect(() => {
-    if (dbReady) { void saveJsonSection("products", products); }
-  }, [dbReady, products]);
-
-  useEffect(() => {
-    if (dbReady) { void saveJsonSection("settings", settings); }
-  }, [dbReady, settings]);
-
-  useEffect(() => {
-    if (dbReady) { void saveJsonSection("tasks", tasks); }
-  }, [dbReady, tasks]);
 
   const navigate = (nextView: View, path: string) => {
     setError("");
@@ -284,7 +280,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
     const createdAt = now();
     const getNumber = (key: string) => Number(form.get(key));
-    setProducts([
+    saveProducts([
       {
         id: Date.now(),
         name,
@@ -320,14 +316,14 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       invoices: recordInvoice ? [{ price: value, registeredAt }, ...selected.invoices] : selected.invoices,
       updated: registeredAt,
     };
-    setProducts(products.map((product) => (product.id === selected.id ? nextSelected : product)));
+    saveProducts(products.map((product) => (product.id === selected.id ? nextSelected : product)));
     setSelected(nextSelected);
   };
 
   const updateColumnLabels = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    setSettings({
+    saveSettings({
       id: "settings",
       columnLabels: Array.from({ length: Number(form.get("labelCount")) || settings.columnLabels.length }, (_, index) => String(form.get(`label${index + 1}`) || `سطح ${index + 1}`)),
       categories: settings.categories,
@@ -339,7 +335,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     event.preventDefault();
     const text = String(new FormData(event.currentTarget).get("task") || "").trim();
     if (!text) return;
-    setTasks([{ id: Date.now(), text, done: false }, ...tasks]);
+    saveTasks([{ id: Date.now(), text, done: false }, ...tasks]);
     event.currentTarget.reset();
   };
 
@@ -371,7 +367,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       if (!imported.length) throw new Error("empty");
       const byName = new Map(products.map((product) => [product.name, product]));
       imported.forEach((product) => byName.set(product.name, product));
-      setProducts(Array.from(byName.values()));
+      saveProducts(Array.from(byName.values()));
       setError(`${imported.length} محصول از فایل اکسل اضافه/به‌روزرسانی شد.`);
     } catch {
       setError("خواندن فایل اکسل ناموفق بود. ستون نام محصول و قیمت خرید را بررسی کنید.");
@@ -383,7 +379,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, "لیست محصولات"); XLSX.writeFile(book, "لیست محصولات بازارک.xlsx");
   };
 
-  if (showIntro || !dbReady) return <LoadingIntro />;
+  if (showIntro || !databaseLoaded) return <LoadingIntro />;
 
   if (view === "landing") {
     return <Landing navigate={navigate} />;
@@ -409,19 +405,19 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             browseMode={settings.browseMode || "sections"}
             tasks={tasks}
             onSelect={setSelected}
-            onToggleActive={(product) => setProducts(products.map((item) => item.id === product.id ? { ...item, active: !item.active, updated: now() } : item))}
-            onToggleFeatured={(product) => setProducts(products.map((item) => item.id === product.id ? { ...item, featured: !item.featured, updated: now() } : item))}
+            onToggleActive={(product) => saveProducts(products.map((item) => item.id === product.id ? { ...item, active: !item.active, updated: now() } : item))}
+            onToggleFeatured={(product) => saveProducts(products.map((item) => item.id === product.id ? { ...item, featured: !item.featured, updated: now() } : item))}
             onOpenAdd={() => setShowAddProduct(true)}
             onImportExcel={importExcel}
             onExportExcel={exportExcel}
             onSaveLabels={updateColumnLabels}
-            onCategoriesChange={(categories) => setSettings({ ...settings, categories })}
-            onBrowseMode={(browseMode) => setSettings({ ...settings, browseMode })}
-            onAssignCategory={(categoryId, ids) => setProducts(products.map((product) => ids.includes(product.id) ? { ...product, categoryIds: Array.from(new Set([...product.categoryIds, categoryId])) } : product))}
-            onApplyLevels={(ids, levels) => setProducts(products.map((product) => ids.includes(product.id) ? { ...product, levels, updated: now() } : product))}
+            onCategoriesChange={(categories) => saveSettings({ ...settings, categories })}
+            onBrowseMode={(browseMode) => saveSettings({ ...settings, browseMode })}
+            onAssignCategory={(categoryId, ids) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, categoryIds: Array.from(new Set([...product.categoryIds, categoryId])) } : product))}
+            onApplyLevels={(ids, levels) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, levels, updated: now() } : product))}
             onAddTask={addTask}
-            onToggleTask={(id) => setTasks(tasks.map((task) => (task.id === id ? { ...task, done: !task.done } : task)))}
-            onDeleteTask={(id) => setTasks(tasks.filter((task) => task.id !== id))}
+            onToggleTask={(id) => saveTasks(tasks.map((task) => (task.id === id ? { ...task, done: !task.done } : task)))}
+            onDeleteTask={(id) => saveTasks(tasks.filter((task) => task.id !== id))}
             error={error}
           />
         ) : (
@@ -454,7 +450,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
               categoryIds: settings.categories.filter((category) => form.get(`category-${category.id}`) === "on").map((category) => category.id),
               updated: now(),
             };
-            setProducts(products.map((product) => (product.id === selected.id ? nextSelected : product)));
+            saveProducts(products.map((product) => (product.id === selected.id ? nextSelected : product)));
             setSelected(nextSelected);
           }}
         />
