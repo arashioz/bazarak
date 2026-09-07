@@ -216,9 +216,9 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const [error, setError] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState("name");
-  const saveProducts = (next: Product[]) => { setProducts(next); void saveJsonSection("products", next); };
-  const saveSettings = (next: AppSettings) => { setSettings(next); void saveJsonSection("settings", next); };
-  const saveTasks = (next: Task[]) => { setTasks(next); void saveJsonSection("tasks", next); };
+  const saveProducts = (next: Product[]) => { setProducts(next); void saveJsonSection("products", next).catch(() => setError("ذخیره روی فایل database.json ناموفق بود؛ اتصال سرور را بررسی کنید.")); };
+  const saveSettings = (next: AppSettings) => { setSettings(next); void saveJsonSection("settings", next).catch(() => setError("ذخیره تنظیمات روی فایل database.json ناموفق بود.")); };
+  const saveTasks = (next: Task[]) => { setTasks(next); void saveJsonSection("tasks", next).catch(() => setError("ذخیره تسک روی فایل database.json ناموفق بود.")); };
 
   useEffect(() => {
     let cancelled = false;
@@ -731,7 +731,7 @@ function Admin({
           <h1 className="text-2xl font-black">پنل مهدی</h1>
           <p className="mt-1 inline-flex items-center gap-1 text-xs text-oxblood-dark/45">
             <Database size={14} />
-            ذخیره در دیتابیس مرورگر
+            ذخیره در فایل database.json سرور
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
