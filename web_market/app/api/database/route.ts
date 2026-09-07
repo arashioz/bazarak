@@ -1,85 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
-import customers from "../../data/customers.json";
-import { seedProductRows } from "../../data/seedProductRows";
+import { mongoDatabase } from "@/lib/mongodb";
 
 export const runtime = "nodejs";
 
 const seedDatabasePath = path.join(process.cwd(), "app", "data", "database.json");
-const databasePath = process.env.DATABASE_PATH || seedDatabasePath;
 const writableSections = new Set(["products", "settings", "tasks", "customerNotes", "customerSettings", "customers"]);
-let writeQueue = Promise.resolve();
 
-type Database = Record<string, unknown> & {
-  products?: Array<Record<string, unknown>>;
-  customers?: typeof customers;
-  featuredDefaultsApplied?: boolean;
-};
-
-const normalizeName = (value: string) => value.trim().replace(/[يى]/g, "ی").replace(/ك/g, "ک").replace(/\s+/g, " ");
-
-const applyDefaults = (database: Database) => {
-  let changed = false;
-  if (!Array.isArray(database.customers)) {
-    database.customers = customers;
-    changed = true;
-  }
-  if (!database.featuredDefaultsApplied && Array.isArray(database.products)) {
-    const byName = new Map(database.products.map((product) => [normalizeName(String(product.name || "")), product]));
-    seedProductRows.forEach((seed) => {
-      const key = normalizeName(seed.name);
-      const existing = byName.get(key);
-      if (existing) {
-        existing.featured = true;
-      } else {
-        byName.set(key, {
-          id: 1_000_000_000 + seed.id,
-          name: seed.name,
-          price: seed.price,
-          unit: "کیلوگرم",
-          stock: 0,
-          active: true,
-          featured: true,
-          updated: new Date().toISOString(),
-          catalogUrl: "",
-          description: "",
-          invoices: seed.price > 0 ? [{ price: seed.price, registeredAt: new Date().toISOString() }] : [],
-          percentages: [seed.percent, seed.percent, seed.percent, seed.percent],
-          rounding: [1000, 1000, 1000, 1000],
-          roundingEnabled: [true, true, true, true],
-          fixedPrices: [],
-          categoryIds: [],
-        });
-      }
-    });
-    database.products = Array.from(byName.values());
-    database.featuredDefaultsApplied = true;
-    changed = true;
-  }
-  return changed;
-};
+type Database = Record<string, unknown>;
+type DatabaseDocument = Database & { _id: string };
 
 const readDatabase = async () => {
-  let contents: string;
-  try {
-    contents = await readFile(databasePath, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    contents = await readFile(seedDatabasePath, "utf8");
-    await mkdir(path.dirname(databasePath), { recursive: true });
-    await writeFile(databasePath, contents);
+  const collection = (await mongoDatabase()).collection<DatabaseDocument>("appState");
+  const stored = await collection.findOne({ _id: "primary" });
+  if (stored) {
+    const { _id, ...database } = stored;
+    return database;
   }
-  const database = JSON.parse(contents) as Database;
-  const changed = applyDefaults(database);
-  if (changed) await writeDatabase(database);
-  return database;
-};
-
-const writeDatabase = async (database: Database) => {
-  const temporaryPath = `${databasePath}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(database, null, 2)}\n`);
-  await rename(temporaryPath, databasePath);
+  const initial = JSON.parse(await readFile(seedDatabasePath, "utf8")) as Database;
+  await collection.insertOne({ _id: "primary", ...initial, migratedAt: new Date() });
+  return initial;
 };
 
 export async function GET() {
@@ -96,15 +37,9 @@ export async function PUT(request: NextRequest) {
     if (typeof section !== "string" || !writableSections.has(section)) {
       return NextResponse.json({ error: "invalid database section" }, { status: 400 });
     }
-    let result: Database | undefined;
-    writeQueue = writeQueue.then(async () => {
-      const database = await readDatabase();
-      database[section] = data;
-      await writeDatabase(database);
-      result = database;
-    });
-    await writeQueue;
-    return NextResponse.json(result);
+    const collection = (await mongoDatabase()).collection<DatabaseDocument>("appState");
+    await collection.updateOne({ _id: "primary" }, { $set: { [section]: data, updatedAt: new Date() } }, { upsert: true });
+    return NextResponse.json(await readDatabase());
   } catch {
     return NextResponse.json({ error: "database update failed" }, { status: 500 });
   }

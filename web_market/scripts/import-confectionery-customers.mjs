@@ -1,11 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import XLSX from "xlsx";
+import { MongoClient } from "mongodb";
 
 const root = process.cwd();
 const publicDirectory = path.join(root, "public");
-const databasePath = path.join(root, "app", "data", "database.json");
+const backupDatabasePath = path.join(root, "app", "data", "database.json");
 const sourceFile = (await fs.readdir(publicDirectory)).find((name) => name.includes("لیست مشتریان لوازم شیرینی") && /\.xlsx$/i.test(name));
+const mongoUri = process.env.MONGODB_URI;
+if (!mongoUri) throw new Error("MONGODB_URI is required to import customers.");
 
 if (!sourceFile) throw new Error("Confectionery customer workbook was not found in public/.");
 
@@ -58,7 +61,11 @@ for (const originalSheetName of workbook.SheetNames) {
   });
 }
 
-const database = JSON.parse(await fs.readFile(databasePath, "utf8"));
+const client = new MongoClient(mongoUri);
+await client.connect();
+const collection = client.db(process.env.MONGODB_DB || "bazarek").collection("appState");
+const stored = await collection.findOne({ _id: "primary" });
+const database = stored ? (() => { const { _id, ...data } = stored; return data; })() : JSON.parse(await fs.readFile(backupDatabasePath, "utf8"));
 const previousCustomers = Array.isArray(database.customers) ? database.customers : [];
 database.customers = [...previousCustomers.filter((customer) => customer.sourceFile !== sourceFile), ...importedCustomers];
 const settings = database.customerSettings || { categories: [], assignments: {} };
@@ -68,5 +75,6 @@ database.customerSettings = {
   categories: [...(settings.categories || []).filter((category) => category.id !== categoryId), { id: categoryId, name: "لوازم شیرینی" }],
   assignments: { ...(settings.assignments || {}), ...Object.fromEntries(importedCustomers.map((customer) => [customer.id, categoryId])) },
 };
-await fs.writeFile(databasePath, `${JSON.stringify(database, null, 2)}\n`);
-console.log(JSON.stringify({ sourceFile, imported: importedCustomers.length, sheets: [...new Set(importedCustomers.map((customer) => customer.sourceSheet))] }, null, 2));
+await collection.updateOne({ _id: "primary" }, { $set: { ...database, updatedAt: new Date() } }, { upsert: true });
+await client.close();
+console.log(JSON.stringify({ sourceFile, imported: importedCustomers.length, sheets: [...new Set(importedCustomers.map((customer) => customer.sourceSheet))], destination: "MongoDB" }, null, 2));

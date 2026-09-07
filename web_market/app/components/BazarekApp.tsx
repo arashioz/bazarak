@@ -186,14 +186,14 @@ const mergeProducts = (base: Product[], saved: Product[]) => {
 
 type ServerDatabase = { products?: unknown; settings?: AppSettings; tasks?: Task[] };
 
-const readJsonDatabase = async () => {
+const readMongoDatabase = async () => {
   const response = await fetch("/api/database", { cache: "no-store" });
   if (!response.ok) throw new Error("database unavailable");
   return response.json() as Promise<ServerDatabase>;
 };
 
 let databaseWriteQueue = Promise.resolve();
-const saveJsonSection = (section: "products" | "settings" | "tasks", data: unknown) => {
+const saveMongoSection = (section: "products" | "settings" | "tasks", data: unknown) => {
   databaseWriteQueue = databaseWriteQueue.catch(() => undefined).then(async () => {
     const response = await fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section, data }) });
     if (!response.ok) throw new Error("database update failed");
@@ -216,9 +216,9 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const [error, setError] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState("name");
-  const saveProducts = (next: Product[]) => { setProducts(next); void saveJsonSection("products", next).catch(() => setError("ذخیره روی فایل database.json ناموفق بود؛ اتصال سرور را بررسی کنید.")); };
-  const saveSettings = (next: AppSettings) => { setSettings(next); void saveJsonSection("settings", next).catch(() => setError("ذخیره تنظیمات روی فایل database.json ناموفق بود.")); };
-  const saveTasks = (next: Task[]) => { setTasks(next); void saveJsonSection("tasks", next).catch(() => setError("ذخیره تسک روی فایل database.json ناموفق بود.")); };
+  const saveProducts = (next: Product[]) => { setProducts(next); void saveMongoSection("products", next).catch(() => setError("ذخیره محصولات در MongoDB ناموفق بود؛ اتصال سرور را بررسی کنید.")); };
+  const saveSettings = (next: AppSettings) => { setSettings(next); void saveMongoSection("settings", next).catch(() => setError("ذخیره تنظیمات در MongoDB ناموفق بود.")); };
+  const saveTasks = (next: Task[]) => { setTasks(next); void saveMongoSection("tasks", next).catch(() => setError("ذخیره تسک در MongoDB ناموفق بود.")); };
 
   useEffect(() => {
     let cancelled = false;
@@ -230,7 +230,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         window.setTimeout(() => setShowIntro(false), 1800);
       }
 
-      const database = await readJsonDatabase();
+      const database = await readMongoDatabase();
       const nextProducts = normalizeProducts(database.products);
 
       if (!cancelled) {
@@ -731,7 +731,7 @@ function Admin({
           <h1 className="text-2xl font-black">پنل مهدی</h1>
           <p className="mt-1 inline-flex items-center gap-1 text-xs text-oxblood-dark/45">
             <Database size={14} />
-            ذخیره در فایل database.json سرور
+            ذخیره در MongoDB سرور
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
@@ -1037,6 +1037,7 @@ function Detail({
   const [confirmPurchase, setConfirmPurchase] = useState(false);
   const units = ["بسته", "عدد", "مثقال", "لیتر", "کارتن", "گرم", "کیلوگرم"];
   const [customUnit, setCustomUnit] = useState(!units.includes(product.unit));
+  const [selectedUnit, setSelectedUnit] = useState(units.includes(product.unit) ? product.unit : "__custom__");
   const [levels, setLevels] = useState<ProductLevel[]>(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) })));
   const levelBasePrice = (level: ProductLevel) => latestPurchase(product) * (parseAmount(level.quantity) || 1);
   const updateLevelPercent = (index: number, percent: number | undefined) => {
@@ -1093,7 +1094,7 @@ function Detail({
             </form>
             <form onSubmit={onUpdatePricing} className="mt-5 rounded-lg border border-oxblood/10 bg-blush p-3">
               <h3 className="font-black">ویرایش مشخصات و قیمت‌گذاری محصول</h3>
-            <div className="mt-3"><label className="text-xs">واحد اندازه‌گیری<select name="unit" value={customUnit ? "__custom__" : product.unit} onChange={(event) => setCustomUnit(event.target.value === "__custom__")} className="mt-1 w-full rounded border border-oxblood/15 bg-white p-2">{units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}<option value="__custom__">دستی ›</option></select>{customUnit && <input name="unitManual" defaultValue={units.includes(product.unit) ? "" : product.unit} placeholder="واحد را بنویسید" className="mt-2 w-full rounded border border-oxblood/15 p-2" />}</label></div>
+            <div className="mt-3"><label className="text-xs">واحد اندازه‌گیری<select name="unit" value={selectedUnit} onChange={(event) => { setSelectedUnit(event.target.value); setCustomUnit(event.target.value === "__custom__"); }} className="mt-1 w-full rounded border border-oxblood/15 bg-white p-2">{units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}<option value="__custom__">دستی ›</option></select>{customUnit && <input name="unitManual" defaultValue={units.includes(product.unit) ? "" : product.unit} placeholder="واحد را بنویسید" className="mt-2 w-full rounded border border-oxblood/15 p-2" />}</label></div>
               <label className="mt-3 block text-xs">توضیحات محصول<textarea name="description" defaultValue={product.description} rows={3} placeholder="توضیحات، نکات خرید یا مشخصات محصول..." className="mt-1 w-full rounded border border-oxblood/15 bg-white p-2" /></label>
               <input type="hidden" name="levels" value={JSON.stringify(levels)} />
               <div className="mt-4 rounded-lg border border-oxblood/10 bg-white p-3">
