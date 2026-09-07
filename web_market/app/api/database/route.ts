@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { mongoDatabase } from "@/lib/mongodb";
 
 export const runtime = "nodejs";
 
-const seedDatabasePath = path.join(process.cwd(), "app", "data", "database.json");
-const writableSections = new Set(["products", "settings", "tasks", "customerNotes", "customerSettings", "customers"]);
+const writableSections = new Set(["products", "settings", "tasks", "customerNotes", "customerSettings", "customers", "customerFollowUp"]);
 
 type Database = Record<string, unknown>;
 type DatabaseDocument = Database & { _id: string };
@@ -18,9 +15,7 @@ const readDatabase = async () => {
     const { _id, ...database } = stored;
     return database;
   }
-  const initial = JSON.parse(await readFile(seedDatabasePath, "utf8")) as Database;
-  await collection.insertOne({ _id: "primary", ...initial, migratedAt: new Date() });
-  return initial;
+  throw new Error("MongoDB data has not been initialized");
 };
 
 export async function GET() {
@@ -38,6 +33,16 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "invalid database section" }, { status: 400 });
     }
     const collection = (await mongoDatabase()).collection<DatabaseDocument>("appState");
+    if (section === "customerFollowUp") {
+      const followUp = data as { customerId?: number; date?: string; note?: string };
+      if (!followUp.customerId || !String(followUp.note || "").trim()) return NextResponse.json({ error: "invalid follow-up" }, { status: 400 });
+      const result = await collection.updateOne(
+        { _id: "primary", "customers.id": followUp.customerId },
+        { $push: { "customers.$.followUps": { date: String(followUp.date || "").trim(), note: String(followUp.note).trim() } }, $set: { updatedAt: new Date() } } as never,
+      );
+      if (!result.matchedCount) return NextResponse.json({ error: "customer not found" }, { status: 404 });
+      return NextResponse.json(await readDatabase());
+    }
     await collection.updateOne({ _id: "primary" }, { $set: { [section]: data, updatedAt: new Date() } }, { upsert: true });
     return NextResponse.json(await readDatabase());
   } catch {
