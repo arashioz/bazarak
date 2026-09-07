@@ -22,6 +22,15 @@ COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/app/data/database.json ./app/data/database.json
 COPY --from=build /app/scripts/migrate-json-to-mongo.mjs ./scripts/migrate-json-to-mongo.mjs
+COPY --from=build /app/scripts/import-persons-customers.mjs ./scripts/import-persons-customers.mjs
+COPY --from=build /app/node_modules/xlsx ./node_modules/xlsx
+COPY --from=build /app/node_modules/adler-32 ./node_modules/adler-32
+COPY --from=build /app/node_modules/cfb ./node_modules/cfb
+COPY --from=build /app/node_modules/codepage ./node_modules/codepage
+COPY --from=build /app/node_modules/crc-32 ./node_modules/crc-32
+COPY --from=build /app/node_modules/ssf ./node_modules/ssf
+COPY --from=build /app/node_modules/wmf ./node_modules/wmf
+COPY --from=build /app/node_modules/word ./node_modules/word
 
 EXPOSE 3000
 

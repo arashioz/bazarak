@@ -8,7 +8,8 @@
     "export": "next build",
     "start": "next start",
     "lint": "next lint",
-    "smee": "node scripts/smee.js"
+    "smee": "node scripts/smee.js",
+    "seed:persons": "node scripts/import-persons-customers.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
