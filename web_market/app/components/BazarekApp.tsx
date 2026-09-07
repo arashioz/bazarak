@@ -265,8 +265,8 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       invoices: recordInvoice ? [{ price: value, registeredAt }, ...selected.invoices] : selected.invoices,
       updated: registeredAt,
     };
-    const saved = await saveProducts(products.map((product) => (product.id === selected.id ? nextSelected : product)));
     setSelected(nextSelected);
+    const saved = await saveProducts(products.map((product) => (product.id === selected.id ? nextSelected : product)));
     if (saved) showNotice(recordInvoice ? "قیمت خرید و فاکتور جدید با موفقیت ذخیره شد." : "قیمت خرید با موفقیت به‌روزرسانی شد.");
   };
 
