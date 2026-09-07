@@ -2,8 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { MongoClient } from "mongodb";
 
-const uri = process.env.MONGODB_URI;
-if (!uri) throw new Error("MONGODB_URI is required for migration.");
+const uri = process.env.MONGODB_URI || "mongodb://mongo:27017/bazarek";
 
 const database = process.env.MONGODB_DB || "bazarek";
 const databasePath = path.join(process.cwd(), "app", "data", "database.json");

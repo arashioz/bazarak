@@ -6,8 +6,7 @@ declare global {
 }
 
 function mongoClientPromise() {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) throw new Error("MONGODB_URI is required");
+  const uri = process.env.MONGODB_URI || "mongodb://mongo:27017/bazarek";
   const promise = global.mongoClientPromise || new MongoClient(uri).connect();
   global.mongoClientPromise = promise;
   return promise;
