@@ -1,5 +1,6 @@
 import BazarekApp from "./components/BazarekApp";
+import { Suspense } from "react";
 
 export default function Page() {
-  return <BazarekApp initialView="landing" />;
+  return <Suspense><BazarekApp initialView="landing" /></Suspense>;
 }

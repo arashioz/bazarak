@@ -1,5 +1,6 @@
 import BazarekApp from "../../components/BazarekApp";
+import { Suspense } from "react";
 
 export default function ManagerLoginPage() {
-  return <BazarekApp initialView="login" />;
+  return <Suspense><BazarekApp initialView="login" /></Suspense>;
 }
