@@ -79,7 +79,7 @@ const levelPriceForBasePrice = (basePrice: number, level: ProductLevel) => {
   const rounding = Math.max(1, level.rounding || 1);
   return level.roundingMode === "up" ? Math.ceil(exact / rounding) * rounding : level.roundingMode === "down" ? Math.floor(exact / rounding) * rounding : Math.round(exact);
 };
-const levelPrice = (product: Product, level: ProductLevel) => levelPriceForBasePrice(product.price, level);
+const levelPrice = (_product: Product, level: ProductLevel) => level.price;
 
 const normalizeProducts = (raw: unknown): Product[] => {
   if (!Array.isArray(raw)) return [];
@@ -91,6 +91,9 @@ const normalizeProducts = (raw: unknown): Product[] => {
       product.invoices?.map((invoice) =>
         typeof invoice === "number" ? { price: invoice, registeredAt: updated } : invoice
       ) || [];
+    const levels = Array.isArray(product.levels)
+      ? product.levels.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(price, level) })
+      : [];
     return {
       id: Number(product.id || Date.now()),
       name: String(product.name || "محصول"),
@@ -108,7 +111,7 @@ const normalizeProducts = (raw: unknown): Product[] => {
       roundingEnabled: product.roundingEnabled || [true, true, true, true],
       fixedPrices: product.fixedPrices || [],
       categoryIds: product.categoryIds || [],
-      levels: Array.isArray(product.levels) ? product.levels : [],
+      levels,
     };
   });
 };
@@ -361,7 +364,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             onCategoriesChange={(categories) => saveSettings({ ...settings, categories })}
             onBrowseMode={(browseMode) => saveSettings({ ...settings, browseMode })}
             onAssignCategory={(categoryId, ids) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, categoryIds: Array.from(new Set([...product.categoryIds, categoryId])) } : product))}
-            onApplyLevels={(ids, levels) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, levels, updated: now() } : product))}
+            onApplyLevels={(ids, levels) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, levels: levels.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(product.price, level) }), updated: now() } : product))}
             onAddTask={addTask}
             onToggleTask={(id) => saveTasks(tasks.map((task) => (task.id === id ? { ...task, done: !task.done } : task)))}
             onDeleteTask={(id) => saveTasks(tasks.filter((task) => task.id !== id))}
@@ -396,7 +399,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
               ...selected,
               unit: String(form.get("unit") === "__custom__" ? form.get("unitManual") : form.get("unit") || selected.unit).trim(),
               description: String(form.get("description") || "").trim(),
-              levels: (() => { try { const value = JSON.parse(String(form.get("levels") || "[]")); return Array.isArray(value) ? value : []; } catch { return selected.levels || []; } })(),
+              levels: (() => { try { const value = JSON.parse(String(form.get("levels") || "[]")); return Array.isArray(value) ? value.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(selected.price, level) }) : []; } catch { return selected.levels || []; } })(),
               percentages: settings.columnLabels.map((_, index) => Number(form.get(`p${index + 1}`)) || 0),
               rounding: settings.columnLabels.map((_, index) => Number(form.get(`r${index + 1}`)) || 1000),
               roundingEnabled: settings.columnLabels.map((_, index) => form.get(`round${index + 1}`) === "on"),
