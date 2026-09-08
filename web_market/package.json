@@ -10,7 +10,7 @@
     "lint": "next lint",
     "smee": "node scripts/smee.js",
     "seed:persons": "node scripts/import-persons-customers.mjs",
-    "seed:mobile-services": "node scripts/import-mobile-services.mjs"
+    "seed:mobile-services": "node scripts/seed-mobile-services.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

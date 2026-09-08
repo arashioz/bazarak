@@ -49,6 +49,12 @@ for (const sourceFile of sourceFiles) {
   }
 }
 await fs.rm(temporaryFile, { force: true });
+if (process.argv.includes("--export-json")) {
+  const mobileServices = { records, serviceTypes: [...new Set(records.map((record) => record.serviceType).filter(Boolean))], operators: [...new Set(records.map((record) => record.operator).filter(Boolean))] };
+  await fs.writeFile(path.join(process.cwd(), "app", "data", "mobile-services.json"), `${JSON.stringify({ mobileServices, customers: directoryCustomers }, null, 2)}\n`);
+  console.log(JSON.stringify({ output: "app/data/mobile-services.json", servicesParsed: records.length, customersParsed: directoryCustomers.length }, null, 2));
+  process.exit(0);
+}
 if (process.argv.includes("--dry-run")) {
   console.log(JSON.stringify({ files: sourceFiles, servicesParsed: records.length, customersParsed: directoryCustomers.length }, null, 2));
   process.exit(0);
