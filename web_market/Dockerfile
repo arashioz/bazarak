@@ -1,4 +1,5 @@
-FROM node:20-alpine AS build
+ARG NODE_IMAGE=mirror.gcr.io/library/node:20-alpine
+FROM ${NODE_IMAGE} AS build
 
 WORKDIR /app
 
@@ -8,7 +9,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine
+FROM ${NODE_IMAGE}
 
 ENV NODE_ENV=production
 ENV PORT=3000
