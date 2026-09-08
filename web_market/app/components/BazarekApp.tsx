@@ -361,6 +361,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     }
   };
   const exportExcel = () => {
+    const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...products.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || products.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`);
     const rows = [...products].sort((a, b) => Number(b.featured) - Number(a.featured)).map((product) => {
       const lastChange = product.priceHistory[0];
       return {
@@ -373,17 +374,17 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         "تاریخ آخرین تغییر": lastChange ? dateTime(lastChange.changedAt) : "",
         "تعداد تغییر قیمت": product.priceHistory.length,
         "تاریخچه تغییر قیمت": product.priceHistory.map((change) => `${money(change.previousPrice)} ← ${money(change.price)} | ${dateTime(change.changedAt)}`).join("\n"),
-        ...Object.fromEntries(settings.columnLabels.map((label, index) => [label, product.levels?.[index]?.price ?? sale(product, index)])),
+        ...Object.fromEntries(exportLabels.map((label, index) => [label, product.levels?.[index]?.price ?? sale(product, index)])),
       };
     });
     const sheet = XLSX.utils.json_to_sheet(rows);
-    sheet["!cols"] = [{ wch: 42 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 60 }, ...settings.columnLabels.map(() => ({ wch: 16 }))];
+    sheet["!cols"] = [{ wch: 42 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 60 }, ...exportLabels.map(() => ({ wch: 16 }))];
     const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, "محصولات و تغییر قیمت"); XLSX.writeFile(book, "گزارش محصولات بازارک.xlsx");
   };
   const exportCategoryExcel = (category: { id: string; name: string }) => {
-    const rows = products.filter((product) => product.categoryIds.includes(category.id)).map((product) => ({ "نام محصول": product.name, "قیمت خرید فعلی": product.price, "فعال": product.active ? "فعال" : "غیرفعال", "توضیحات": product.description, ...Object.fromEntries(settings.columnLabels.map((label, index) => [label, product.levels?.[index]?.price ?? sale(product, index)])) }));
+    const categoryProducts = products.filter((product) => product.categoryIds.includes(category.id)); const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...categoryProducts.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || categoryProducts.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`); const rows = categoryProducts.map((product) => ({ "نام محصول": product.name, "قیمت خرید فعلی": product.price, "فعال": product.active ? "فعال" : "غیرفعال", "توضیحات": product.description, ...Object.fromEntries(exportLabels.map((label, index) => [label, product.levels?.[index]?.price ?? sale(product, index)])) }));
     const sheet = XLSX.utils.json_to_sheet(rows);
-    sheet["!cols"] = [{ wch: 42 }, { wch: 18 }, { wch: 12 }, { wch: 40 }, ...settings.columnLabels.map(() => ({ wch: 16 }))];
+    sheet["!cols"] = [{ wch: 42 }, { wch: 18 }, { wch: 12 }, { wch: 40 }, ...exportLabels.map(() => ({ wch: 16 }))];
     const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, category.name.slice(0, 31) || "دسته"); XLSX.writeFile(book, `دسته ${category.name}.xlsx`);
   };
   const changeCurrency = async (nextCurrency: Currency) => {
@@ -1110,7 +1111,7 @@ function Detail({
         </button>
         <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-oxblood/20" />
         <h2 className="text-2xl font-black">{product.name}</h2>
-        {admin && product.description && <p className="mt-3 rounded-lg bg-blush p-3 text-sm text-oxblood-dark/65">{product.description}</p>}
+        {product.description && <p className="mt-2 text-xs leading-6 text-oxblood-dark/60">{product.description}</p>}
         {admin && <p className="mt-3 text-sm text-oxblood-dark/55">آخرین خرید از فروشنده: {money(latestPurchase(product))}</p>}
         <p className="mt-1 flex items-center gap-2 text-xs text-oxblood-dark/45">
           <CalendarDays size={14} />
