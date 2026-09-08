@@ -3,7 +3,7 @@ import { mongoDatabase } from "@/lib/mongodb";
 
 export const runtime = "nodejs";
 
-const writableSections = new Set(["products", "settings", "tasks", "customerNotes", "customerSettings", "customers", "customerFollowUp"]);
+const writableSections = new Set(["products", "settings", "tasks", "customerNotes", "customerSettings", "customers", "customerFollowUp", "mobileServices"]);
 
 type Database = Record<string, unknown>;
 type DatabaseDocument = Database & { _id: string };

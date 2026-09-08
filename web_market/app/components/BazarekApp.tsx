@@ -50,13 +50,14 @@ type Product = {
   categoryIds: string[];
   levels?: ProductLevel[];
 };
-type AppSettings = { id: "settings"; columnLabels: string[]; categories: { id: string; name: string }[]; browseMode?: "sections" | "phonebook"; importReports?: ImportReport[] };
+type Currency = "toman" | "rial";
+type AppSettings = { id: "settings"; columnLabels: string[]; categories: { id: string; name: string }[]; browseMode?: "sections" | "phonebook"; importReports?: ImportReport[]; currency?: Currency };
 type Task = { id: number; text: string; done: boolean };
 type View = "landing" | "user" | "login" | "admin" | "catalog";
 type AdminTab = "products" | "tasks" | "reports";
 
 const DEFAULT_LABELS = ["سطح ۱", "سطح ۲", "سطح ۳", "سطح ۴"];
-const DEFAULT_SETTINGS: AppSettings = { id: "settings", columnLabels: DEFAULT_LABELS, categories: [], browseMode: "sections" };
+const DEFAULT_SETTINGS: AppSettings = { id: "settings", columnLabels: DEFAULT_LABELS, categories: [], browseMode: "sections", currency: "toman" };
 
 const now = () => new Date().toISOString();
 const money = (value: number) => value.toLocaleString("fa-IR");
@@ -93,6 +94,16 @@ const levelPriceForBasePrice = (basePrice: number, level: ProductLevel) => {
   return level.roundingMode === "up" ? Math.ceil(exact / rounding) * rounding : level.roundingMode === "down" ? Math.floor(exact / rounding) * rounding : Math.round(exact);
 };
 const levelPrice = (_product: Product, level: ProductLevel) => level.price;
+const currencyTitle = (currency: Currency = "toman") => currency === "rial" ? "ریال" : "تومان";
+const convertProductCurrency = (product: Product, factor: number): Product => ({
+  ...product,
+  price: Math.round(product.price * factor),
+  invoices: product.invoices.map((invoice) => ({ ...invoice, price: Math.round(invoice.price * factor) })),
+  priceHistory: product.priceHistory.map((change) => ({ ...change, previousPrice: Math.round(change.previousPrice * factor), price: Math.round(change.price * factor) })),
+  fixedPrices: product.fixedPrices.map((price) => Math.round(price * factor)),
+  rounding: product.rounding.map((price) => Math.round(price * factor)),
+  levels: product.levels?.map((level) => ({ ...level, price: Math.round(level.price * factor), rounding: level.rounding === undefined ? undefined : Math.round(level.rounding * factor) })),
+});
 
 const normalizeProducts = (raw: unknown): Product[] => {
   if (!Array.isArray(raw)) return [];
@@ -293,7 +304,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       id: "settings",
       columnLabels: Array.from({ length: Number(form.get("labelCount")) || settings.columnLabels.length }, (_, index) => String(form.get(`label${index + 1}`) || `سطح ${index + 1}`)),
       categories: settings.categories,
-      browseMode: settings.browseMode || "sections", importReports: settings.importReports || [],
+      browseMode: settings.browseMode || "sections", importReports: settings.importReports || [], currency: settings.currency || "toman",
     });
   };
 
@@ -355,7 +366,6 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       return {
         "نام محصول": product.name,
         "قیمت خرید فعلی": product.price,
-        "واحد": product.unit,
         "فعال": product.active ? "فعال" : "غیرفعال",
         "محصول برتر": product.featured ? "بله" : "خیر",
         "آخرین تغییر قیمت": lastChange ? lastChange.price : "",
@@ -367,8 +377,24 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       };
     });
     const sheet = XLSX.utils.json_to_sheet(rows);
-    sheet["!cols"] = [{ wch: 42 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 60 }, ...settings.columnLabels.map(() => ({ wch: 16 }))];
+    sheet["!cols"] = [{ wch: 42 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 60 }, ...settings.columnLabels.map(() => ({ wch: 16 }))];
     const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, "محصولات و تغییر قیمت"); XLSX.writeFile(book, "گزارش محصولات بازارک.xlsx");
+  };
+  const exportCategoryExcel = (category: { id: string; name: string }) => {
+    const rows = products.filter((product) => product.categoryIds.includes(category.id)).map((product) => ({ "نام محصول": product.name, "قیمت خرید فعلی": product.price, "فعال": product.active ? "فعال" : "غیرفعال", "توضیحات": product.description, ...Object.fromEntries(settings.columnLabels.map((label, index) => [label, product.levels?.[index]?.price ?? sale(product, index)])) }));
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    sheet["!cols"] = [{ wch: 42 }, { wch: 18 }, { wch: 12 }, { wch: 40 }, ...settings.columnLabels.map(() => ({ wch: 16 }))];
+    const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, category.name.slice(0, 31) || "دسته"); XLSX.writeFile(book, `دسته ${category.name}.xlsx`);
+  };
+  const changeCurrency = async (nextCurrency: Currency) => {
+    const currentCurrency = settings.currency || "toman";
+    if (nextCurrency === currentCurrency) return;
+    const factor = nextCurrency === "rial" ? 10 : 0.1;
+    const nextProducts = products.map((product) => convertProductCurrency(product, factor));
+    const saved = await saveProducts(nextProducts);
+    if (!saved) return;
+    saveSettings({ ...settings, currency: nextCurrency });
+    showNotice(`همهٔ مبالغ به ${currencyTitle(nextCurrency)} تبدیل شد.`);
   };
 
   if (showIntro || !databaseLoaded) return <LoadingIntro />;
@@ -384,8 +410,8 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const isAdmin = view === "admin";
   return (
     <main className="min-h-screen bg-blush text-oxblood-dark">
-      <Header q={q} setQ={setQ} navigate={navigate} />
-      <CustomerDrawer />
+      <Header q={q} setQ={setQ} navigate={navigate} admin={isAdmin} />
+      {isAdmin && <CustomerDrawer />}
       {notice && <div role="status" className="fixed top-5 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-xl">{notice}</div>}
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         {view === "catalog" ? (
@@ -403,6 +429,9 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             onOpenAdd={() => setShowAddProduct(true)}
             onImportExcel={importExcel}
             onExportExcel={exportExcel}
+            onExportCategoryExcel={exportCategoryExcel}
+            currency={settings.currency || "toman"}
+            onChangeCurrency={changeCurrency}
             onSaveLabels={updateColumnLabels}
             onCategoriesChange={(categories) => saveSettings({ ...settings, categories })}
             onBrowseMode={(browseMode) => saveSettings({ ...settings, browseMode })}
@@ -544,10 +573,12 @@ function Header({
   q,
   setQ,
   navigate,
+  admin,
 }: {
   q: string;
   setQ: (value: string) => void;
   navigate: (nextView: View, path: string) => void;
+  admin: boolean;
 }) {
   return (
     <header className="sticky top-0 z-10 border-b border-oxblood/10 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-6">
@@ -566,7 +597,7 @@ function Header({
           />
         </div>
         <div className="flex gap-3 text-sm font-bold text-oxblood">
-          <Link href="/customers" className="rounded-lg px-2 py-1 hover:bg-blush">مشتریان</Link>
+          {admin && <><Link href="/customers" className="rounded-lg px-2 py-1 hover:bg-blush">مشتریان</Link><Link href="/mobile-services" className="rounded-lg px-2 py-1 hover:bg-blush">خدمات سیار</Link></>}
           <button onClick={() => navigate("catalog", "/catalog")}>کاتالوگ</button>
           <button onClick={() => navigate("login", "/modir/login")}>ورود مدیر</button>
           <button onClick={() => navigate("landing", "/")}>تغییر نقش</button>
@@ -655,9 +686,9 @@ function Grid({
           <div className="flex items-start justify-between gap-2">{admin ? <button type="button" onClick={() => onToggleFeatured?.(product)} className="rounded-full p-1 hover:bg-amber-50" aria-label={product.featured ? "حذف از محصولات برتر" : "افزودن به محصولات برتر"}><Star size={18} className={product.featured ? "fill-amber-400 text-amber-400" : "text-oxblood/30"} /></button> : <Star size={15} className={product.featured ? "fill-amber-400 text-amber-400" : "text-oxblood/20"} />}{admin && onToggleSelect && <input type="checkbox" checked={selectedIds?.includes(product.id) || false} onChange={() => onToggleSelect(product.id)} className="h-5 w-5 accent-oxblood" aria-label={`انتخاب ${product.name}`} />}</div>
           <button onClick={() => onSelect(product)} className="w-full text-right">
           <b className="mt-4 block text-sm font-black leading-6 sm:text-base">{product.name}</b>
+          {product.description && <small className="mt-1 block line-clamp-2 text-[11px] leading-5 text-oxblood-dark/55">{product.description}</small>}
           <span className="mt-1 block text-[11px] text-oxblood-dark/45">{labels[0]}</span>
-          {admin && <strong className="mt-4 block text-[11px] font-black text-oxblood">آخرین خرید: {money(latestPurchase(product))} تومان</strong>}
-          <small className="mt-1 block text-[11px] text-oxblood-dark/45">هر ۱۰۰۰ گرم</small>
+          {admin && <strong className="mt-4 block text-[11px] font-black text-oxblood">آخرین خرید: {money(latestPurchase(product))}</strong>}
           <small className="mt-1 block text-[11px] text-oxblood-dark/45">تاریخ آخرین خرید: {product.invoices[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</small>
           {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تغییر قیمت: {date(product.updated)}</small>}
           {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">{product.invoices.length} فاکتور</small>}
@@ -681,6 +712,9 @@ function Admin({
   onOpenAdd,
   onImportExcel,
   onExportExcel,
+  onExportCategoryExcel,
+  currency,
+  onChangeCurrency,
   onSaveLabels,
   onCategoriesChange,
   onBrowseMode,
@@ -702,6 +736,9 @@ function Admin({
   onOpenAdd: () => void;
   onImportExcel: (event: FormEvent<HTMLInputElement>) => void;
   onExportExcel: () => void;
+  onExportCategoryExcel: (category: { id: string; name: string }) => void;
+  currency: Currency;
+  onChangeCurrency: (currency: Currency) => void;
   onSaveLabels: (event: FormEvent<HTMLFormElement>) => void;
   onCategoriesChange: (categories: { id: string; name: string }[]) => void;
   onBrowseMode: (mode: "sections" | "phonebook") => void;
@@ -770,7 +807,7 @@ function Admin({
       ) : tab === "tasks" ? (
         <TaskPanel tasks={tasks} onAddTask={onAddTask} onToggleTask={onToggleTask} onDeleteTask={onDeleteTask} />
       ) : (
-        <ReportsPanel products={products} categories={categories} importReports={importReports} onSelect={onSelect}/>
+        <ReportsPanel products={products} categories={categories} importReports={importReports} onSelect={onSelect} onExportCategory={onExportCategoryExcel} currency={currency}/>
       )}
       {showSettings && (
         <div className="fixed inset-0 z-20 flex items-end justify-center">
@@ -781,6 +818,7 @@ function Admin({
             <h2 className="flex items-center gap-2 text-xl font-black"><Settings2 size={20} /> تنظیمات ستون‌ها</h2>
             <p className="mt-2 text-sm text-oxblood-dark/55">نام سه ستون قیمت را تغییر دهید.</p>
             <div className="mt-4">
+              <section className="mb-4 rounded-lg border border-oxblood/10 bg-blush p-4"><h3 className="font-black">واحد پول</h3><p className="mt-1 text-xs text-oxblood-dark/55">با تغییر واحد، همهٔ قیمت‌ها، فاکتورها، قیمت‌های سطحی و تاریخچه‌ها هم‌زمان تبدیل می‌شوند.</p><div className="mt-3 flex gap-2"><button type="button" onClick={() => onChangeCurrency("toman")} className={`rounded-lg px-3 py-2 text-sm font-bold ${currency === "toman" ? "bg-oxblood text-white" : "border border-oxblood/20 bg-white text-oxblood"}`}>تومان</button><button type="button" onClick={() => onChangeCurrency("rial")} className={`rounded-lg px-3 py-2 text-sm font-bold ${currency === "rial" ? "bg-oxblood text-white" : "border border-oxblood/20 bg-white text-oxblood"}`}>ریال</button></div></section>
               <section className="mb-4 rounded-lg border border-oxblood/10 bg-blush p-4"><h3 className="font-black">فایل‌های اکسل</h3><p className="mt-1 text-xs text-oxblood-dark/55">ورود اطلاعات جدید یا دریافت فهرست قیمت‌ها.</p><div className="mt-3 flex flex-wrap gap-2"><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-sm font-bold text-oxblood"><Upload size={16} /> آپلود اکسل<input type="file" accept=".xlsx,.xls,.csv" onChange={onImportExcel} className="sr-only" /></label><button onClick={onExportExcel} className="rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white">خروجی اکسل</button></div></section>
               <DisplayModeForm mode={browseMode} onChange={onBrowseMode} />
               <CategoryForm categories={categories} onChange={onCategoriesChange} />
@@ -793,8 +831,8 @@ function Admin({
   );
 }
 
-function ReportsPanel({ products, categories, importReports, onSelect }: { products: Product[]; categories: { id: string; name: string }[]; importReports: ImportReport[]; onSelect: (product: Product) => void }) {
-  return <div className="mt-5 space-y-5"><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش دسته‌بندی‌ها</h2><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => { const items = products.filter((product) => product.categoryIds.includes(category.id)); return <article key={category.id} className="rounded-lg bg-blush p-3"><b>{category.name}</b><span className="mt-2 block text-sm">{items.length.toLocaleString("fa-IR")} محصول</span><small className="mt-1 block text-oxblood-dark/55">{items.filter((item) => item.active).length.toLocaleString("fa-IR")} فعال</small></article>; })}</div>{!categories.length && <p className="mt-3 text-sm text-oxblood-dark/55">هنوز دسته‌ای برای محصولات ساخته نشده است.</p>}</section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش هر محصول</h2><div className="mt-3 space-y-2">{products.map((product) => <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg bg-blush p-3"><div><b>{product.name}</b><small className="mt-1 block text-xs text-oxblood-dark/55">قیمت فعلی: {money(product.price)} تومان · {product.priceHistory.length.toLocaleString("fa-IR")} تغییر قیمت</small></div><button type="button" onClick={() => onSelect(product)} className="shrink-0 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">گزارش محصول</button></div>)}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش ورود فایل‌ها</h2>{importReports.length ? <div className="mt-3 space-y-2">{importReports.map((report) => <article key={report.id} className="rounded-lg bg-blush p-3"><b className="block break-all text-sm">{report.fileName}</b><small className="mt-1 block text-xs text-oxblood-dark/55">{dateTime(report.importedAt)}</small><div className="mt-2 flex flex-wrap gap-2 text-xs"><span>جدید: {report.added.toLocaleString("fa-IR")}</span><span>تغییر قیمت: {report.priceChanged.toLocaleString("fa-IR")}</span><span>بدون تغییر: {report.unchanged.toLocaleString("fa-IR")}</span></div></article>)}</div> : <p className="mt-3 text-sm text-oxblood-dark/55">هنوز گزارشی از ورود اکسل محصولات ثبت نشده است.</p>}</section></div>;
+function ReportsPanel({ products, categories, importReports, onSelect, onExportCategory, currency }: { products: Product[]; categories: { id: string; name: string }[]; importReports: ImportReport[]; onSelect: (product: Product) => void; onExportCategory: (category: { id: string; name: string }) => void; currency: Currency }) {
+  return <div className="mt-5 space-y-5"><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش دسته‌بندی‌ها</h2><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => { const items = products.filter((product) => product.categoryIds.includes(category.id)); return <article key={category.id} className="rounded-lg bg-blush p-3"><b>{category.name}</b><span className="mt-2 block text-sm">{items.length.toLocaleString("fa-IR")} محصول</span><small className="mt-1 block text-oxblood-dark/55">{items.filter((item) => item.active).length.toLocaleString("fa-IR")} فعال</small><button type="button" onClick={() => onExportCategory(category)} className="mt-3 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">خروجی اکسل این دسته</button></article>; })}</div>{!categories.length && <p className="mt-3 text-sm text-oxblood-dark/55">هنوز دسته‌ای برای محصولات ساخته نشده است.</p>}</section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش هر محصول</h2><div className="mt-3 space-y-2">{products.map((product) => <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg bg-blush p-3"><div><b>{product.name}</b><small className="mt-1 block text-xs text-oxblood-dark/55">قیمت فعلی: {money(product.price)} {currencyTitle(currency)} · {product.priceHistory.length.toLocaleString("fa-IR")} تغییر قیمت</small></div><button type="button" onClick={() => onSelect(product)} className="shrink-0 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">گزارش محصول</button></div>)}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش ورود فایل‌ها</h2>{importReports.length ? <div className="mt-3 space-y-2">{importReports.map((report) => <article key={report.id} className="rounded-lg bg-blush p-3"><b className="block break-all text-sm">{report.fileName}</b><small className="mt-1 block text-xs text-oxblood-dark/55">{dateTime(report.importedAt)}</small><div className="mt-2 flex flex-wrap gap-2 text-xs"><span>جدید: {report.added.toLocaleString("fa-IR")}</span><span>تغییر قیمت: {report.priceChanged.toLocaleString("fa-IR")}</span><span>بدون تغییر: {report.unchanged.toLocaleString("fa-IR")}</span></div></article>)}</div> : <p className="mt-3 text-sm text-oxblood-dark/55">هنوز گزارشی از ورود اکسل محصولات ثبت نشده است.</p>}</section></div>;
 }
 
 function CategoryForm({ categories, onChange }: { categories: { id: string; name: string }[]; onChange: (categories: { id: string; name: string }[]) => void }) {
@@ -1003,11 +1041,11 @@ function Catalog({
             className="rounded-lg border border-oxblood/10 bg-white p-4 text-right shadow-sm transition hover:border-oxblood/45"
           >
             <b className="block text-lg font-black">{product.name}</b>
-            <p className="mt-3 text-xs font-bold text-oxblood">آخرین خرید: {money(latestPurchase(product))} تومان</p>
-            <p className="mt-1 text-[10px] text-oxblood-dark/45">هر ۱۰۰۰ گرم</p>
+            {product.description && <p className="mt-1 line-clamp-2 text-xs leading-5 text-oxblood-dark/55">{product.description}</p>}
+            <p className="mt-3 text-xs font-bold text-oxblood">آخرین خرید: {money(latestPurchase(product))}</p>
             <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
               {(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) }))).map((level) => (
-                <span key={level.id} className="rounded-lg bg-blush p-2"><span className="block text-oxblood-dark/45">{level.label}</span><b className="mt-1 block text-oxblood">{money(levelPrice(product, level))}</b><small className="mt-1 block text-[10px] text-oxblood-dark/45">{level.quantity} {level.unit}</small></span>
+                <span key={level.id} className="rounded-lg bg-blush p-2"><span className="block text-oxblood-dark/45">{level.label}</span><b className="mt-1 block text-oxblood">{money(levelPrice(product, level))}</b></span>
               ))}
             </div>
           </button>
@@ -1073,7 +1111,7 @@ function Detail({
         <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-oxblood/20" />
         <h2 className="text-2xl font-black">{product.name}</h2>
         {admin && product.description && <p className="mt-3 rounded-lg bg-blush p-3 text-sm text-oxblood-dark/65">{product.description}</p>}
-        {admin && <p className="mt-3 text-sm text-oxblood-dark/55">آخرین خرید از فروشنده: {money(latestPurchase(product))} تومان</p>}
+        {admin && <p className="mt-3 text-sm text-oxblood-dark/55">آخرین خرید از فروشنده: {money(latestPurchase(product))}</p>}
         <p className="mt-1 flex items-center gap-2 text-xs text-oxblood-dark/45">
           <CalendarDays size={14} />
           تاریخ ثبت تغییر قیمت: {date(product.updated)}
@@ -1093,7 +1131,7 @@ function Detail({
         )}
         <div className="mt-5 grid gap-2 sm:grid-cols-3">
           {(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) }))).map((level) => (
-            <div key={level.id} className="rounded-lg border border-oxblood/10 bg-blush p-3 text-center"><b className="block text-sm">{level.label}</b><strong className="mt-3 block text-lg font-black text-oxblood">{money(levelPrice(product, level))}</strong><small>{level.quantity} {level.unit}</small></div>
+            <div key={level.id} className="rounded-lg border border-oxblood/10 bg-blush p-3 text-center"><b className="block text-sm">{level.label}</b><strong className="mt-3 block text-lg font-black text-oxblood">{money(levelPrice(product, level))}</strong></div>
           ))}
         </div>
         {admin && (
@@ -1127,7 +1165,7 @@ function Detail({
               {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" defaultChecked={product.categoryIds.includes(category.id)} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
               <button type="submit" disabled={savingPricing} className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{savingPricing ? "در حال ذخیره..." : "ذخیره قیمت‌گذاری"}</button>
             </form>
-            {confirmPurchase && <div className="fixed inset-0 z-30 grid place-items-center bg-oxblood-dark/45 p-4"><section className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><h3 className="text-lg font-black">نوع ثبت قیمت خرید</h3><p className="mt-2 text-sm text-oxblood-dark/60">{money(purchaseValue)} تومان را چگونه ثبت کنیم؟</p><button type="button" disabled={savingPurchase} onClick={() => { void savePurchase(false); }} className="mt-4 w-full rounded-lg border border-oxblood/25 p-3 font-bold text-oxblood disabled:opacity-50">{savingPurchase ? "در حال ذخیره..." : "فقط به‌روزرسانی قیمت"}</button><button type="button" disabled={savingPurchase} onClick={() => { void savePurchase(true); }} className="mt-2 w-full rounded-lg bg-oxblood p-3 font-bold text-white disabled:opacity-50">{savingPurchase ? "در حال ذخیره..." : "ثبت به‌عنوان فاکتور جدید"}</button><button type="button" disabled={savingPurchase} onClick={() => setConfirmPurchase(false)} className="mt-3 w-full text-sm text-oxblood-dark/55 disabled:opacity-50">انصراف</button></section></div>}
+            {confirmPurchase && <div className="fixed inset-0 z-30 grid place-items-center bg-oxblood-dark/45 p-4"><section className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><h3 className="text-lg font-black">نوع ثبت قیمت خرید</h3><p className="mt-2 text-sm text-oxblood-dark/60">{money(purchaseValue)} را چگونه ثبت کنیم؟</p><button type="button" disabled={savingPurchase} onClick={() => { void savePurchase(false); }} className="mt-4 w-full rounded-lg border border-oxblood/25 p-3 font-bold text-oxblood disabled:opacity-50">{savingPurchase ? "در حال ذخیره..." : "فقط به‌روزرسانی قیمت"}</button><button type="button" disabled={savingPurchase} onClick={() => { void savePurchase(true); }} className="mt-2 w-full rounded-lg bg-oxblood p-3 font-bold text-white disabled:opacity-50">{savingPurchase ? "در حال ذخیره..." : "ثبت به‌عنوان فاکتور جدید"}</button><button type="button" disabled={savingPurchase} onClick={() => setConfirmPurchase(false)} className="mt-3 w-full text-sm text-oxblood-dark/55 disabled:opacity-50">انصراف</button></section></div>}
             <h3 className="mt-5 flex items-center gap-2 font-black">
               <ReceiptText size={18} />
               فاکتورهای خرید

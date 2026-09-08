@@ -17,12 +17,15 @@ ENV MONGODB_DB=bazarek
 
 WORKDIR /app
 
+RUN apk add --no-cache python3 py3-pip && pip3 install --no-cache-dir --break-system-packages msoffcrypto-tool
+
 COPY --from=build /app/public ./public
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/app/data/database.json ./app/data/database.json
 COPY --from=build /app/scripts/migrate-json-to-mongo.mjs ./scripts/migrate-json-to-mongo.mjs
 COPY --from=build /app/scripts/import-persons-customers.mjs ./scripts/import-persons-customers.mjs
+COPY --from=build /app/scripts/import-mobile-services.mjs ./scripts/import-mobile-services.mjs
 COPY --from=build /app/node_modules/xlsx ./node_modules/xlsx
 COPY --from=build /app/node_modules/adler-32 ./node_modules/adler-32
 COPY --from=build /app/node_modules/cfb ./node_modules/cfb
