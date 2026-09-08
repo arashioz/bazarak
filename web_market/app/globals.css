@@ -17,6 +17,9 @@
 .mobile-services-app td:first-child { border-radius: 0 .65rem .65rem 0; color: #7f2130; font-weight: 700; }
 .mobile-services-app td:last-child { border-radius: .65rem 0 0 .65rem; font-weight: 700; }
 
+/* Keep the scrollable region inside a Sheet constrained to the viewport. */
+[data-slot="sheet-content"] > .flex-1 { min-height: 0; }
+
 @font-face {
   font-family: "Vazirmatn";
   src: url("/bazarak/fonts/Vazirmatn.woff2") format("woff2"), url("/fonts/Vazirmatn.woff2") format("woff2");
