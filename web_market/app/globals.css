@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Mobile services: dedicated app-like shell */
+.mobile-services-app main { background: linear-gradient(145deg, #fff6f3 0%, #f9e7e6 100%); min-height: 100vh; }
+.mobile-services-app header { align-items: center; border: 1px solid rgb(104 26 36 / .1); border-radius: 1.25rem; background: rgb(255 255 255 / .9); padding: 1.25rem; box-shadow: 0 10px 28px rgb(83 28 35 / .08); }
+.mobile-services-app form, .mobile-services-app section.mt-5 { border: 1px solid rgb(104 26 36 / .1); border-radius: 1.25rem; box-shadow: 0 12px 30px rgb(83 28 35 / .07); }
+.mobile-services-app label { color: #571724; font-size: .82rem; font-weight: 800; }
+.mobile-services-app input, .mobile-services-app select { border: 1px solid rgb(104 26 36 / .16) !important; border-radius: .7rem !important; background: #fff !important; padding: .65rem .75rem !important; transition: border-color .15s, box-shadow .15s; }
+.mobile-services-app input:focus, .mobile-services-app select:focus { border-color: #7f2130 !important; box-shadow: 0 0 0 3px rgb(127 33 48 / .12); outline: none; }
+.mobile-services-app form > button { border-radius: .75rem !important; box-shadow: 0 6px 14px rgb(104 26 36 / .22); }
+.mobile-services-app table { border-collapse: separate; border-spacing: 0 .45rem; }
+.mobile-services-app tbody tr { background: #fff6f3; transition: transform .15s, background .15s; }
+.mobile-services-app tbody tr:hover { background: #fff; transform: translateY(-1px); }
+.mobile-services-app td { padding: .7rem .5rem; }
+.mobile-services-app td:first-child { border-radius: 0 .65rem .65rem 0; color: #7f2130; font-weight: 700; }
+.mobile-services-app td:last-child { border-radius: .65rem 0 0 .65rem; font-weight: 700; }
+
 @font-face {
   font-family: "Vazirmatn";
   src: url("/bazarak/fonts/Vazirmatn.woff2") format("woff2"), url("/fonts/Vazirmatn.woff2") format("woff2");
