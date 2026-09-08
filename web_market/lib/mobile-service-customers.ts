@@ -17,3 +17,9 @@ export function findMobileServiceCustomers(records: MobileServiceRecord[], query
   const normalized = query.trim(); const number = digits(normalized);
   return mobileServiceCustomers(records).filter((customer) => customer.name.includes(normalized) || (!!number && digits(customer.phone).includes(number))).slice(0, 8);
 }
+
+export function displayJalaliDate(value: string) {
+  const digitsOnly = String(value ?? "").replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace(/\D/g, "");
+  if (digitsOnly.length === 8 && digitsOnly.startsWith("14")) return `${digitsOnly.slice(0, 4)}/${digitsOnly.slice(4, 6)}/${digitsOnly.slice(6, 8)}`.replace(/[0-9]/g, (digit) => "۰۱۲۳۴۵۶۷۸۹"[Number(digit)]);
+  return String(value ?? "");
+}
