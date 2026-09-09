@@ -75,6 +75,7 @@ const asActive = (value: unknown) =>
 export default function CustomersApp() {
   const [query, setQuery] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState<Record<number, CustomerNote>>({});
   const [selected, setSelected] = useState<Customer | null>(null);
   const [customerSettings, setCustomerSettings] = useState<CustomerSettings>({
@@ -102,7 +103,8 @@ export default function CustomersApp() {
           database.customerSettings || { categories: [], assignments: {} },
         );
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
   }, []);
   const saveCustomerSection = async (
     section:
@@ -247,6 +249,7 @@ export default function CustomersApp() {
       window.alert("ورود اکسل یا ذخیره مشتریان در MongoDB ناموفق بود.");
     }
   };
+  if (loading) return <main className="min-h-screen bg-blush p-5 text-oxblood sm:p-8"><section className="mx-auto max-w-6xl"><div className="rounded-2xl bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><div className="h-10 w-10 animate-spin rounded-full border-4 border-oxblood/15 border-t-oxblood"/><div><b className="block text-lg font-black">در حال دریافت مشتریان</b><span className="text-sm text-oxblood-dark/55">اطلاعات از MongoDB خوانده می‌شود…</span></div></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{Array.from({ length: 10 }).map((_, index) => <article key={index} className="animate-pulse rounded-lg border border-oxblood/10 bg-white p-4 shadow-sm"><div className="h-5 w-3/5 rounded bg-oxblood/10"/><div className="mt-3 h-3 w-2/5 rounded bg-oxblood/10"/><div className="mt-5 h-4 w-4/5 rounded bg-oxblood/10"/><div className="mt-4 h-9 w-2/3 rounded-lg bg-oxblood/10"/></article>)}</div></section></main>;
   return (
     <main className="min-h-screen bg-blush p-4 text-oxblood-dark sm:p-6">
       <section className="mx-auto max-w-6xl">
@@ -362,7 +365,7 @@ export default function CustomersApp() {
             </button>
           </div>
         )}
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {list.map((customer) => {
             const number = callNumber(customer);
             const category = customerSettings.categories.find(

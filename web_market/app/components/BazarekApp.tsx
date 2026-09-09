@@ -64,6 +64,7 @@ const DEFAULT_SETTINGS: AppSettings = { id: "settings", columnLabels: DEFAULT_LA
 const now = () => new Date().toISOString();
 const money = (value: number) => value.toLocaleString("fa-IR");
 const phoneDigits = (value: string) => value.replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace(/\D/g, "");
+const categoryId = (value: unknown) => { try { return decodeURIComponent(String(value ?? "")).trim(); } catch { return String(value ?? "").trim(); } };
 const latestPurchase = (product: Product) => product.price;
 const parseAmount = (value: unknown) => {
   const normalized = String(value ?? "")
@@ -265,7 +266,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
   const filtered = useMemo(() => products.filter((product) => product.name.includes(q.trim())), [products, q]);
   const visibleProducts = useMemo(() => [...filtered.filter((product) => !categoryFilter || product.categoryIds.includes(categoryFilter))].sort((a, b) => sortMode === "price-asc" ? a.price - b.price : sortMode === "price-desc" ? b.price - a.price : sortMode === "stock-desc" ? b.stock - a.stock : a.name.localeCompare(b.name, "fa")), [filtered, categoryFilter, sortMode]);
-  const catalogCategoryId = searchParams.get("category") || (pathname.startsWith("/catalog/") ? decodeURIComponent(pathname.slice("/catalog/".length)) : null);
+  const catalogCategoryId = categoryId(searchParams.get("category") || (pathname.startsWith("/catalog/") ? pathname.slice("/catalog/".length) : "")) || null;
 
   const add = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -443,7 +444,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       {notice && <div role="status" className="fixed top-5 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-xl">{notice}</div>}
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         {view === "catalog" ? (
-          <Catalog products={products.filter((product) => product.active && (!catalogCategoryId || product.categoryIds.map(String).includes(String(catalogCategoryId))))} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} onSelect={setSelected} />
+          <Catalog products={products.filter((product) => product.active && (!catalogCategoryId || product.categoryIds.some((id) => categoryId(id) === catalogCategoryId)))} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} onSelect={setSelected} />
         ) : isAdmin ? (
           <Admin
             products={visibleProducts}
@@ -476,7 +477,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
           <ProductSections products={visibleProducts.filter((product) => product.active)} labels={settings.columnLabels} mode={settings.browseMode} onSelect={setSelected} />
         )}
       </div>
-      <CategoryFilter categories={settings.categories} products={products} value={categoryFilter} onChange={setCategoryFilter} sortMode={sortMode} onSort={setSortMode} />
+      {view !== "catalog" && <CategoryFilter categories={settings.categories} products={products} value={categoryFilter} onChange={setCategoryFilter} sortMode={sortMode} onSort={setSortMode} />}
       {showAddProduct && (
         <AddProductSheet labels={settings.columnLabels} categories={settings.categories} onClose={() => setShowAddProduct(false)} onAdd={add} error={error} />
       )}
@@ -539,7 +540,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
 function CategoryFilter({ categories, products, value, onChange, sortMode, onSort }: { categories: { id: string; name: string }[]; products: Product[]; value: string | null; onChange: (value: string | null) => void; sortMode: string; onSort: (value: string) => void }) {
   const [open, setOpen] = useState(false);
-  return <><button onClick={() => setOpen(true)} className="fixed left-4 top-[calc(50%+1rem)] z-30 rounded-full bg-oxblood px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-oxblood-dark">فیلتر دسته‌ها</button>{open && <div className="fixed inset-0 z-40 flex justify-end"><button onClick={() => setOpen(false)} className="absolute inset-0 bg-oxblood-dark/40" aria-label="بستن"/><section className="relative h-full w-[92vw] max-w-md overflow-y-auto bg-white p-5 shadow-2xl animate-in slide-in-from-right duration-200"><h2 className="text-lg font-black">فیلتر و مرتب‌سازی</h2><select value={sortMode} onChange={(event) => onSort(event.target.value)} className="mt-4 w-full rounded-lg border border-oxblood/15 p-3"><option value="name">نام محصول</option><option value="price-asc">قیمت: کم به زیاد</option><option value="price-desc">قیمت: زیاد به کم</option><option value="stock-desc">بیشترین موجودی</option></select><p className="mt-4 text-xs text-oxblood-dark/55">دسته‌بندی موردنظر را انتخاب کنید.</p><div className="mt-2 space-y-2"><button onClick={() => { onChange(null); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${!value ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>همه محصولات</span><b>{products.filter((product) => product.active).length}</b></button>{categories.map((category) => { const count = products.filter((product) => product.active && product.categoryIds.includes(category.id)).length; return <button key={category.id} onClick={() => { onChange(category.id); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${value === category.id ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>{category.name}</span><b>{count} محصول</b></button>; })}</div></section></div>}</>;
+  return <><button onClick={() => setOpen(true)} className="fixed left-4 top-[calc(50%+1rem)] z-10 rounded-full bg-oxblood px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-oxblood-dark">فیلتر دسته‌ها</button>{open && <div className="fixed inset-0 z-40 flex justify-end"><button onClick={() => setOpen(false)} className="absolute inset-0 bg-oxblood-dark/40" aria-label="بستن"/><section className="relative h-full w-[92vw] max-w-md overflow-y-auto bg-white p-5 shadow-2xl animate-in slide-in-from-right duration-200"><h2 className="text-lg font-black">فیلتر و مرتب‌سازی</h2><select value={sortMode} onChange={(event) => onSort(event.target.value)} className="mt-4 w-full rounded-lg border border-oxblood/15 p-3"><option value="name">نام محصول</option><option value="price-asc">قیمت: کم به زیاد</option><option value="price-desc">قیمت: زیاد به کم</option><option value="stock-desc">بیشترین موجودی</option></select><p className="mt-4 text-xs text-oxblood-dark/55">دسته‌بندی موردنظر را انتخاب کنید.</p><div className="mt-2 space-y-2"><button onClick={() => { onChange(null); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${!value ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>همه محصولات</span><b>{products.filter((product) => product.active).length}</b></button>{categories.map((category) => { const count = products.filter((product) => product.active && product.categoryIds.includes(category.id)).length; return <button key={category.id} onClick={() => { onChange(category.id); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${value === category.id ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>{category.name}</span><b>{count} محصول</b></button>; })}</div></section></div>}</>;
 }
 
 function Landing({ navigate }: { navigate: (nextView: View, path: string) => void }) {
@@ -1086,7 +1087,7 @@ function Catalog({
   contact: CatalogContact;
   onSelect: (product: Product) => void;
 }) {
-  const selectedCategory = categories.find((category) => category.id === selectedCategoryId);
+  const selectedCategory = categories.find((category) => categoryId(category.id) === selectedCategoryId);
   return (
     <section>
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -1095,7 +1096,7 @@ function Catalog({
           <p className="mt-1 text-sm text-oxblood-dark/55">نسخه آسیاب صداقت، {products.length} محصول</p>
         </div>
       </div>
-      {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><Link href="/catalog" className={`rounded-lg border px-3 py-2 text-sm font-bold ${!selectedCategoryId ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 text-oxblood"}`}>همه محصولات</Link>{categories.map((category) => <Link key={category.id} href={`/catalog/${encodeURIComponent(category.id)}`} className={`rounded-lg border px-3 py-2 text-sm font-bold ${selectedCategoryId === category.id ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 text-oxblood"}`}>{category.name}</Link>)}</div>}
+      {!selectedCategoryId && !!categories.length && <div className="mt-4 flex flex-wrap gap-2">{categories.map((category) => <Link key={category.id} href={`/catalog/${encodeURIComponent(category.id)}`} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm font-bold text-oxblood">کاتالوگ {category.name}</Link>)}</div>}
       {selectedCategory && <p className="mt-3 text-xs text-oxblood-dark/55">این لینک فقط محصولات دسته «{selectedCategory.name}» را نشان می‌دهد و قابل ارسال است.</p>}
       {(contact.mobile || contact.phone || contact.address) && <section className="mt-5 rounded-xl border border-oxblood/10 bg-white p-4 text-sm"><h2 className="font-black text-oxblood">اطلاعات تماس</h2><div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-oxblood-dark/70">{contact.mobile && <a dir="ltr" href={`tel:${phoneDigits(contact.mobile)}`}>همراه: {contact.mobile}</a>}{contact.phone && <a dir="ltr" href={`tel:${phoneDigits(contact.phone)}`}>ثابت: {contact.phone}</a>}{contact.address && <span>آدرس: {contact.address}</span>}</div></section>}
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1233,7 +1234,7 @@ function Detail({
                 </div>)}</div>
               </div>
               {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={product.categoryIds.includes(category.id)} onChange={(event) => onCategoryChange(category.id, event.target.checked)} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
-              <button type="submit" disabled={savingPricing} className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{savingPricing ? "در حال ذخیره..." : "ذخیره قیمت‌گذاری"}</button>
+              <button type="submit" disabled={savingPricing} className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{savingPricing ? "در حال ذخیره..." : "ثبت اطلاعات"}</button>
               <button type="button" onClick={() => void onDelete()} className="mt-3 mr-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-bold text-red-700">حذف محصول</button>
             </form>
             {confirmPurchase && <div className="fixed inset-0 z-30 grid place-items-center bg-oxblood-dark/45 p-4"><section className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><h3 className="text-lg font-black">نوع ثبت قیمت خرید</h3><p className="mt-2 text-sm text-oxblood-dark/60">{money(purchaseValue)} را چگونه ثبت کنیم؟</p><button type="button" disabled={savingPurchase} onClick={() => { void savePurchase(false); }} className="mt-4 w-full rounded-lg border border-oxblood/25 p-3 font-bold text-oxblood disabled:opacity-50">{savingPurchase ? "در حال ذخیره..." : "فقط به‌روزرسانی قیمت"}</button><button type="button" disabled={savingPurchase} onClick={() => { void savePurchase(true); }} className="mt-2 w-full rounded-lg bg-oxblood p-3 font-bold text-white disabled:opacity-50">{savingPurchase ? "در حال ذخیره..." : "ثبت به‌عنوان فاکتور جدید"}</button><button type="button" disabled={savingPurchase} onClick={() => setConfirmPurchase(false)} className="mt-3 w-full text-sm text-oxblood-dark/55 disabled:opacity-50">انصراف</button></section></div>}
