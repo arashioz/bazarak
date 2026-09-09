@@ -51,7 +51,8 @@ type Product = {
   levels?: ProductLevel[];
 };
 type Currency = "toman" | "rial";
-type AppSettings = { id: "settings"; columnLabels: string[]; categories: { id: string; name: string }[]; browseMode?: "sections" | "phonebook"; importReports?: ImportReport[]; currency?: Currency };
+type CatalogContact = { mobile?: string; phone?: string; address?: string };
+type AppSettings = { id: "settings"; columnLabels: string[]; categories: { id: string; name: string }[]; browseMode?: "sections" | "phonebook"; importReports?: ImportReport[]; currency?: Currency; catalogContact?: CatalogContact };
 type Task = { id: number; text: string; done: boolean };
 type View = "landing" | "user" | "login" | "admin" | "catalog";
 type AdminTab = "products" | "tasks" | "reports";
@@ -61,6 +62,7 @@ const DEFAULT_SETTINGS: AppSettings = { id: "settings", columnLabels: DEFAULT_LA
 
 const now = () => new Date().toISOString();
 const money = (value: number) => value.toLocaleString("fa-IR");
+const phoneDigits = (value: string) => value.replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace(/\D/g, "");
 const latestPurchase = (product: Product) => product.price;
 const parseAmount = (value: unknown) => {
   const normalized = String(value ?? "")
@@ -428,12 +430,12 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const isAdmin = view === "admin";
   return (
     <main className="min-h-screen bg-blush text-oxblood-dark">
-      <Header q={q} setQ={setQ} navigate={navigate} admin={isAdmin} />
+      {view !== "catalog" && <Header q={q} setQ={setQ} navigate={navigate} admin={isAdmin} />}
       {isAdmin && <CustomerDrawer />}
       {notice && <div role="status" className="fixed top-5 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-xl">{notice}</div>}
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         {view === "catalog" ? (
-          <Catalog products={visibleProducts.filter((product) => product.active && (!catalogCategoryId || product.categoryIds.includes(catalogCategoryId)))} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} onSelect={setSelected} />
+          <Catalog products={visibleProducts.filter((product) => product.active && (!catalogCategoryId || product.categoryIds.includes(catalogCategoryId)))} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} onSelect={setSelected} />
         ) : isAdmin ? (
           <Admin
             products={visibleProducts}
@@ -452,6 +454,8 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             onChangeCurrency={changeCurrency}
             onSaveLabels={updateColumnLabels}
             onCategoriesChange={(categories) => saveSettings({ ...settings, categories })}
+            catalogContact={settings.catalogContact || {}}
+            onCatalogContactChange={(catalogContact) => saveSettings({ ...settings, catalogContact })}
             onBrowseMode={(browseMode) => saveSettings({ ...settings, browseMode })}
             onAssignCategory={(categoryId, ids) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, categoryIds: Array.from(new Set([...product.categoryIds, categoryId])) } : product))}
             onApplyLevels={(ids, levels) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, levels: levels.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(product.price, level) }), updated: now() } : product))}
@@ -481,6 +485,13 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             const nextSelected = { ...selected, active: !selected.active, updated: now() };
             saveProducts(products.map((product) => product.id === selected.id ? nextSelected : product));
             setSelected(nextSelected);
+          }}
+          onCategoryChange={(categoryId, checked) => {
+            const categoryIds = checked ? Array.from(new Set([...selected.categoryIds, categoryId])) : selected.categoryIds.filter((id) => id !== categoryId);
+            const nextSelected = { ...selected, categoryIds, updated: now() };
+            void saveProducts(products.map((product) => product.id === selected.id ? nextSelected : product));
+            setSelected(nextSelected);
+            showNotice(checked ? "محصول در دسته ثبت شد." : "محصول از دسته خارج شد.");
           }}
           onUpdatePricing={async (event) => {
             event.preventDefault();
@@ -735,6 +746,8 @@ function Admin({
   onChangeCurrency,
   onSaveLabels,
   onCategoriesChange,
+  catalogContact,
+  onCatalogContactChange,
   onBrowseMode,
   onAssignCategory,
   onApplyLevels,
@@ -759,6 +772,8 @@ function Admin({
   onChangeCurrency: (currency: Currency) => void;
   onSaveLabels: (event: FormEvent<HTMLFormElement>) => void;
   onCategoriesChange: (categories: { id: string; name: string }[]) => void;
+  catalogContact: CatalogContact;
+  onCatalogContactChange: (contact: CatalogContact) => void;
   onBrowseMode: (mode: "sections" | "phonebook") => void;
   onAssignCategory: (categoryId: string, ids: number[]) => void;
   onApplyLevels: (ids: number[], levels: ProductLevel[]) => void;
@@ -792,7 +807,7 @@ function Admin({
         </button>
         <button onClick={() => { setSelectingForCategory(!selectingForCategory); if (selectingForCategory) setSelectedIds([]); }} className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition ${selectingForCategory ? "bg-oxblood text-white shadow-sm" : "border border-oxblood/15 bg-blush text-oxblood hover:border-oxblood/40 hover:bg-white"}`}>ویرایش گروهی</button>
         <button onClick={() => setShowSettings(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-oxblood/15 bg-blush px-4 py-2.5 text-sm font-bold text-oxblood transition hover:border-oxblood/40 hover:bg-white">
-          <Settings2 size={18} /> تنظیمات
+          <Settings2 size={18} /> تنظیمات و دسته‌بندی
         </button>
         </div>
       </div>
@@ -840,6 +855,7 @@ function Admin({
               <section className="mb-4 rounded-lg border border-oxblood/10 bg-blush p-4"><h3 className="font-black">فایل‌های اکسل</h3><p className="mt-1 text-xs text-oxblood-dark/55">ورود اطلاعات جدید یا دریافت فهرست قیمت‌ها.</p><div className="mt-3 flex flex-wrap gap-2"><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-sm font-bold text-oxblood"><Upload size={16} /> آپلود اکسل<input type="file" accept=".xlsx,.xls,.csv" onChange={onImportExcel} className="sr-only" /></label><button onClick={onExportExcel} className="rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white">خروجی اکسل</button></div></section>
               <DisplayModeForm mode={browseMode} onChange={onBrowseMode} />
               <CategoryForm categories={categories} onChange={onCategoriesChange} />
+              <CatalogSettingsForm contact={catalogContact} categories={categories} onSave={onCatalogContactChange} />
             </div>
           </section>
         </div>
@@ -856,6 +872,13 @@ function ReportsPanel({ products, categories, importReports, onSelect, onExportC
 function CategoryForm({ categories, onChange }: { categories: { id: string; name: string }[]; onChange: (categories: { id: string; name: string }[]) => void }) {
   const [name, setName] = useState("");
   return <section className="mt-4 rounded-lg border border-oxblood/10 p-4"><h3 className="font-black">دسته‌بندی محصولات</h3><form onSubmit={(event) => { event.preventDefault(); const value = name.trim(); if (!value) return; onChange([...categories, { id: `${Date.now()}-${value}`, name: value }]); setName(""); }} className="mt-3 flex gap-2"><input value={name} onChange={(event) => setName(event.target.value)} placeholder="نام دسته" className="min-w-0 flex-1 rounded border border-oxblood/15 p-2"/><button className="rounded bg-oxblood px-3 text-sm font-bold text-white">افزودن</button></form><div className="mt-3 flex flex-wrap gap-2">{categories.map((category) => <span key={category.id} className="rounded-full bg-blush px-3 py-1 text-sm">{category.name}<button type="button" onClick={() => onChange(categories.filter((item) => item.id !== category.id))} className="mr-2 text-oxblood">×</button></span>)}</div></section>;
+}
+
+function CatalogSettingsForm({ contact, categories, onSave }: { contact: CatalogContact; categories: { id: string; name: string }[]; onSave: (contact: CatalogContact) => void }) {
+  const [mobile, setMobile] = useState(contact.mobile || "");
+  const [phone, setPhone] = useState(contact.phone || "");
+  const [address, setAddress] = useState(contact.address || "");
+  return <section className="mt-4 rounded-lg border border-oxblood/10 p-4"><h3 className="font-black">تنظیمات کاتالوگ</h3><p className="mt-1 text-xs text-oxblood-dark/55">این اطلاعات در کاتالوگ کلی و تمام لینک‌های دسته‌بندی نمایش داده می‌شود.</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-xs font-bold">شماره تماس همراه<input value={mobile} onChange={(event) => setMobile(event.target.value)} inputMode="tel" className="mt-1 w-full rounded border border-oxblood/15 p-2 font-normal"/></label><label className="text-xs font-bold">شماره ثابت<input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" className="mt-1 w-full rounded border border-oxblood/15 p-2 font-normal"/></label><label className="text-xs font-bold sm:col-span-2">آدرس<textarea value={address} onChange={(event) => setAddress(event.target.value)} rows={2} className="mt-1 w-full rounded border border-oxblood/15 p-2 font-normal"/></label></div><button type="button" onClick={() => onSave({ mobile: mobile.trim(), phone: phone.trim(), address: address.trim() })} className="mt-3 rounded bg-oxblood px-3 py-2 text-sm font-bold text-white">ذخیره تنظیمات کاتالوگ</button><div className="mt-5 border-t border-oxblood/10 pt-4"><b className="text-sm">لینک‌های قابل ارسال</b><div className="mt-2 flex flex-wrap gap-2"><Link href="/catalog" target="_blank" className="rounded border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">کاتالوگ کلی</Link>{categories.map((category) => <Link key={category.id} href={`/catalog/${encodeURIComponent(category.id)}`} target="_blank" className="rounded border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">کاتالوگ {category.name}</Link>)}</div></div></section>;
 }
 
 function DisplayModeForm({ mode, onChange }: { mode: "sections" | "phonebook"; onChange: (mode: "sections" | "phonebook") => void }) {
@@ -1028,12 +1051,14 @@ function Catalog({
   labels,
   categories,
   selectedCategoryId,
+  contact,
   onSelect,
 }: {
   products: Product[];
   labels: string[];
   categories: { id: string; name: string }[];
   selectedCategoryId: string | null;
+  contact: CatalogContact;
   onSelect: (product: Product) => void;
 }) {
   const selectedCategory = categories.find((category) => category.id === selectedCategoryId);
@@ -1044,13 +1069,10 @@ function Catalog({
           <h1 className="text-2xl font-black text-oxblood">{selectedCategory ? `کاتالوگ ${selectedCategory.name}` : "کاتالوگ بازارک"}</h1>
           <p className="mt-1 text-sm text-oxblood-dark/55">نسخه آسیاب صداقت، {products.length} محصول</p>
         </div>
-        <Link href="/catalog" className="inline-flex items-center gap-2 rounded-lg border border-oxblood/15 px-4 py-2 text-sm font-bold text-oxblood">
-          لینک کاتالوگ
-          <ExternalLink size={15} />
-        </Link>
       </div>
       {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><Link href="/catalog" className={`rounded-lg border px-3 py-2 text-sm font-bold ${!selectedCategoryId ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 text-oxblood"}`}>همه محصولات</Link>{categories.map((category) => <Link key={category.id} href={`/catalog/${encodeURIComponent(category.id)}`} className={`rounded-lg border px-3 py-2 text-sm font-bold ${selectedCategoryId === category.id ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 text-oxblood"}`}>{category.name}</Link>)}</div>}
       {selectedCategory && <p className="mt-3 text-xs text-oxblood-dark/55">این لینک فقط محصولات دسته «{selectedCategory.name}» را نشان می‌دهد و قابل ارسال است.</p>}
+      {(contact.mobile || contact.phone || contact.address) && <section className="mt-5 rounded-xl border border-oxblood/10 bg-white p-4 text-sm"><h2 className="font-black text-oxblood">اطلاعات تماس</h2><div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-oxblood-dark/70">{contact.mobile && <a dir="ltr" href={`tel:${phoneDigits(contact.mobile)}`}>همراه: {contact.mobile}</a>}{contact.phone && <a dir="ltr" href={`tel:${phoneDigits(contact.phone)}`}>ثابت: {contact.phone}</a>}{contact.address && <span>آدرس: {contact.address}</span>}</div></section>}
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {products.map((product) => (
           <button
@@ -1081,6 +1103,7 @@ function Detail({
   onClose,
   onInvoice,
   onToggleActive,
+  onCategoryChange,
   onUpdatePricing,
 }: {
   product: Product;
@@ -1090,6 +1113,7 @@ function Detail({
   onClose: () => void;
   onInvoice: (value: number, recordInvoice: boolean) => Promise<void>;
   onToggleActive: () => void;
+  onCategoryChange: (categoryId: string, checked: boolean) => void;
   onUpdatePricing: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 }) {
   const [purchaseValue, setPurchaseValue] = useState(0);
@@ -1175,12 +1199,12 @@ function Detail({
                   <select value={level.unit} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, unit: event.target.value } : item))} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="" disabled>واحد</option>{units.map((unit) => <option key={unit}>{unit}</option>)}</select>
                   <input value={level.percent ?? ""} onChange={(event) => updateLevelPercent(index, event.target.value === "" ? undefined : parseAmount(event.target.value))} placeholder="درصد سود" type="text" inputMode="decimal" className="rounded border border-oxblood/15 p-2 text-xs" />
                   <input value={level.price || ""} onChange={(event) => updateLevelPrice(index, parsePriceAmount(event.target.value))} placeholder="قیمت فروش" type="text" inputMode="numeric" className="rounded border border-oxblood/15 bg-white p-2 text-xs font-bold text-oxblood" />
-                  <input value={level.rounding ?? ""} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, rounding: event.target.value === "" ? undefined : parseAmount(event.target.value) } : item))} placeholder="مبلغ رند" type="text" inputMode="numeric" className="rounded border border-oxblood/15 p-2 text-xs" />
-                  <select value={level.roundingMode || "none"} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, roundingMode: event.target.value as ProductLevel["roundingMode"] } : item))} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select>
+                  <input value={level.rounding ?? ""} onChange={(event) => setLevels(levels.map((item, itemIndex) => { if (itemIndex !== index) return item; const rounding = event.target.value === "" ? undefined : parseAmount(event.target.value); const next = { ...item, rounding }; return next.percent === undefined ? next : { ...next, price: levelPriceForBasePrice(product.price, next) }; }))} placeholder="گام رند (مثلاً ۱۰۰۰۰ ریال)" type="text" inputMode="numeric" className="rounded border border-oxblood/15 p-2 text-xs" />
+                  <select value={level.roundingMode || "none"} onChange={(event) => setLevels(levels.map((item, itemIndex) => { if (itemIndex !== index) return item; const next = { ...item, roundingMode: event.target.value as ProductLevel["roundingMode"] }; return next.percent === undefined ? next : { ...next, price: levelPriceForBasePrice(product.price, next) }; }))} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select>
                   <button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button>
                 </div>)}</div>
               </div>
-              {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" defaultChecked={product.categoryIds.includes(category.id)} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
+              {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={product.categoryIds.includes(category.id)} onChange={(event) => onCategoryChange(category.id, event.target.checked)} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
               <button type="submit" disabled={savingPricing} className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{savingPricing ? "در حال ذخیره..." : "ذخیره قیمت‌گذاری"}</button>
             </form>
             {confirmPurchase && <div className="fixed inset-0 z-30 grid place-items-center bg-oxblood-dark/45 p-4"><section className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><h3 className="text-lg font-black">نوع ثبت قیمت خرید</h3><p className="mt-2 text-sm text-oxblood-dark/60">{money(purchaseValue)} را چگونه ثبت کنیم؟</p><button type="button" disabled={savingPurchase} onClick={() => { void savePurchase(false); }} className="mt-4 w-full rounded-lg border border-oxblood/25 p-3 font-bold text-oxblood disabled:opacity-50">{savingPurchase ? "در حال ذخیره..." : "فقط به‌روزرسانی قیمت"}</button><button type="button" disabled={savingPurchase} onClick={() => { void savePurchase(true); }} className="mt-2 w-full rounded-lg bg-oxblood p-3 font-bold text-white disabled:opacity-50">{savingPurchase ? "در حال ذخیره..." : "ثبت به‌عنوان فاکتور جدید"}</button><button type="button" disabled={savingPurchase} onClick={() => setConfirmPurchase(false)} className="mt-3 w-full text-sm text-oxblood-dark/55 disabled:opacity-50">انصراف</button></section></div>}

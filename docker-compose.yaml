@@ -29,4 +29,4 @@ volumes:
     # Keep MongoDB data independent from the Compose lifecycle. In particular,
     # `docker compose down -v` must not delete customer/catalog data.
     external: true
-    name: manti_mongo-data
+    name: bazarak_mongo-data
