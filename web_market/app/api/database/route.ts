@@ -3,7 +3,7 @@ import { mongoDatabase } from "@/lib/mongodb";
 
 export const runtime = "nodejs";
 
-const writableSections = new Set(["products", "settings", "catalog", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "mobileServices"]);
+const writableSections = new Set(["products", "settings", "catalog", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "productDelete", "mobileServices"]);
 
 type Database = Record<string, unknown>;
 type DatabaseDocument = Database & { _id: string };
@@ -59,6 +59,18 @@ export async function PUT(request: NextRequest) {
       const customer = data as { id?: number };
       if (!Number.isFinite(customer?.id)) return NextResponse.json({ error: "invalid customer" }, { status: 400 });
       await collection.updateOne({ _id: "primary" }, { $pull: { customers: { id: customer.id } }, $set: { updatedAt: new Date() } } as never);
+      return NextResponse.json(await readDatabase());
+    }
+    if (section === "productDelete") {
+      const product = data as { id?: number; password?: string };
+      if (!Number.isFinite(product?.id) || String(product.password || "") !== "7755") {
+        return NextResponse.json({ error: "invalid product deletion request" }, { status: 403 });
+      }
+      const result = await collection.updateOne(
+        { _id: "primary" },
+        { $pull: { products: { id: product.id } }, $set: { updatedAt: new Date() } } as never,
+      );
+      if (!result.matchedCount) return NextResponse.json({ error: "product not found" }, { status: 404 });
       return NextResponse.json(await readDatabase());
     }
     // Bulk imports may still send an array. Merge it with the server copy so a

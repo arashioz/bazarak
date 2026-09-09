@@ -521,6 +521,16 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             if (saved) showNotice("قیمت‌گذاری و سطح‌های محصول با موفقیت ذخیره شد.");
             setSelected(nextSelected);
           }}
+          onDelete={async () => {
+            if (!confirmDelete(`محصول «${selected.name}»`)) return;
+            const password = window.prompt("رمز حذف محصول را وارد کنید");
+            if (password !== "7755") { setError("رمز حذف محصول صحیح نیست."); return; }
+            const response = await fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "productDelete", data: { id: selected.id, password } }) });
+            if (!response.ok) { setError("حذف محصول از MongoDB ناموفق بود."); return; }
+            setProducts((current) => current.filter((product) => product.id !== selected.id));
+            setSelected(null);
+            showNotice("محصول از دیتابیس حذف شد.");
+          }}
         />
       )}
     </main>
@@ -1120,6 +1130,7 @@ function Detail({
   onToggleActive,
   onCategoryChange,
   onUpdatePricing,
+  onDelete,
 }: {
   product: Product;
   labels: string[];
@@ -1130,6 +1141,7 @@ function Detail({
   onToggleActive: () => void;
   onCategoryChange: (categoryId: string, checked: boolean) => void;
   onUpdatePricing: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onDelete: () => Promise<void>;
 }) {
   const [purchaseValue, setPurchaseValue] = useState(0);
   const [confirmPurchase, setConfirmPurchase] = useState(false);
@@ -1222,6 +1234,7 @@ function Detail({
               </div>
               {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={product.categoryIds.includes(category.id)} onChange={(event) => onCategoryChange(category.id, event.target.checked)} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
               <button type="submit" disabled={savingPricing} className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{savingPricing ? "در حال ذخیره..." : "ذخیره قیمت‌گذاری"}</button>
+              <button type="button" onClick={() => void onDelete()} className="mt-3 mr-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-bold text-red-700">حذف محصول</button>
             </form>
             {confirmPurchase && <div className="fixed inset-0 z-30 grid place-items-center bg-oxblood-dark/45 p-4"><section className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><h3 className="text-lg font-black">نوع ثبت قیمت خرید</h3><p className="mt-2 text-sm text-oxblood-dark/60">{money(purchaseValue)} را چگونه ثبت کنیم؟</p><button type="button" disabled={savingPurchase} onClick={() => { void savePurchase(false); }} className="mt-4 w-full rounded-lg border border-oxblood/25 p-3 font-bold text-oxblood disabled:opacity-50">{savingPurchase ? "در حال ذخیره..." : "فقط به‌روزرسانی قیمت"}</button><button type="button" disabled={savingPurchase} onClick={() => { void savePurchase(true); }} className="mt-2 w-full rounded-lg bg-oxblood p-3 font-bold text-white disabled:opacity-50">{savingPurchase ? "در حال ذخیره..." : "ثبت به‌عنوان فاکتور جدید"}</button><button type="button" disabled={savingPurchase} onClick={() => setConfirmPurchase(false)} className="mt-3 w-full text-sm text-oxblood-dark/55 disabled:opacity-50">انصراف</button></section></div>}
             <h3 className="mt-5 flex items-center gap-2 font-black">
