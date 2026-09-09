@@ -267,6 +267,8 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const filtered = useMemo(() => products.filter((product) => product.name.includes(q.trim())), [products, q]);
   const visibleProducts = useMemo(() => [...filtered.filter((product) => !categoryFilter || product.categoryIds.includes(categoryFilter))].sort((a, b) => sortMode === "price-asc" ? a.price - b.price : sortMode === "price-desc" ? b.price - a.price : sortMode === "stock-desc" ? b.stock - a.stock : a.name.localeCompare(b.name, "fa")), [filtered, categoryFilter, sortMode]);
   const catalogCategoryId = categoryId(searchParams.get("category") || (pathname.startsWith("/catalog/") ? pathname.slice("/catalog/".length) : "")) || null;
+  const catalogCategory = settings.categories.find((category) => categoryId(category.id) === catalogCategoryId);
+  const catalogCategoryIds = new Set(settings.categories.filter((category) => catalogCategory && category.name.trim() === catalogCategory.name.trim()).map((category) => categoryId(category.id)));
 
   const add = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -444,7 +446,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       {notice && <div role="status" className="fixed top-5 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-xl">{notice}</div>}
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         {view === "catalog" ? (
-          <Catalog products={products.filter((product) => product.active && (!catalogCategoryId || product.categoryIds.some((id) => categoryId(id) === catalogCategoryId)))} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} onSelect={setSelected} />
+          <Catalog products={products.filter((product) => product.active && (!catalogCategoryId || product.categoryIds.some((id) => catalogCategoryIds.has(categoryId(id)) || categoryId(id) === catalogCategoryId || categoryId(id) === catalogCategory?.name)))} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} onSelect={setSelected} />
         ) : isAdmin ? (
           <Admin
             products={visibleProducts}
@@ -1107,7 +1109,7 @@ function Catalog({
             className="rounded-lg border border-oxblood/10 bg-white p-4 text-right shadow-sm transition hover:border-oxblood/45"
           >
             <b className="block text-lg font-black">{product.name}</b>
-            {product.description && <p className="mt-1 line-clamp-2 text-xs leading-5 text-oxblood-dark/55">{product.description}</p>}
+            {product.description && <p className="mt-1 line-clamp-2 text-xs font-medium leading-5 text-oxblood-dark">{product.description}</p>}
             <p className="mt-3 text-xs font-bold text-oxblood">آخرین خرید: {money(latestPurchase(product))}</p>
             <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
               {(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) }))).map((level) => (
@@ -1117,6 +1119,7 @@ function Catalog({
           </button>
         ))}
       </div>
+      {selectedCategoryId && !products.length && <p className="mt-6 rounded-xl border border-oxblood/10 bg-white p-4 text-sm text-oxblood-dark/55">برای این دسته هنوز محصول فعالی ثبت نشده است. در پنل محصول، تیک دسته‌بندی را بررسی کنید.</p>}
     </section>
   );
 }

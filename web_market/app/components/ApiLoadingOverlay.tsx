@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const isApiRequest = (input: RequestInfo | URL) => {
+const isTrackedApiRequest = (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === "string" ? input : input instanceof Request ? input.url : input.toString();
-  return url.startsWith("/api/") || /\/api\//.test(url);
+  const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+  return method !== "GET" && (url.startsWith("/api/") || /\/api\//.test(url));
 };
 
 export default function ApiLoadingOverlay({ children }: { children: React.ReactNode }) {
@@ -23,7 +24,7 @@ export default function ApiLoadingOverlay({ children }: { children: React.ReactN
       setVisible(false);
     };
     const trackedFetch: typeof window.fetch = async (input, init) => {
-      if (!isApiRequest(input)) return nativeFetch(input, init);
+      if (!isTrackedApiRequest(input, init)) return nativeFetch(input, init);
       activeRequests.current += 1;
       if (activeRequests.current === 1) revealTimer.current = setTimeout(() => setVisible(true), 140);
       try {
