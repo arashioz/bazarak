@@ -20,6 +20,13 @@
 /* Keep the scrollable region inside a Sheet constrained to the viewport. */
 [data-slot="sheet-content"] > .flex-1 { min-height: 0; }
 
+/* Scroll regions in drawers and bottom sheets retain a dedicated, touch-friendly scroll area. */
+[data-slot="sheet-content"] .overflow-y-auto,
+.fixed .overflow-y-auto {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 @font-face {
   font-family: "Vazirmatn";
   src: url("/bazarak/fonts/Vazirmatn.woff2") format("woff2"), url("/fonts/Vazirmatn.woff2") format("woff2");
