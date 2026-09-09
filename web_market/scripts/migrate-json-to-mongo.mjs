@@ -9,13 +9,21 @@ const forceSeed = process.env.FORCE_SEED === "1";
 const databasePath = path.join(process.cwd(), "app", "data", "database.json");
 const client = new MongoClient(uri);
 
-const byId = (items) => new Map((Array.isArray(items) ? items : []).map((item) => [item.id, item]));
 const mergeProducts = (seedProducts, storedProducts) => {
-  const seed = byId(seedProducts);
-  const stored = byId(storedProducts);
-  stored.forEach((product, id) => seed.set(id, { ...product, levels: product.levels?.length ? product.levels : seed.get(id)?.levels || [] }));
-  return [...seed.values()];
+  const merged = [...(Array.isArray(seedProducts) ? seedProducts : [])];
+  for (const product of Array.isArray(storedProducts) ? storedProducts : []) {
+    const index = merged.findIndex((item) => item.id === product.id || String(item.name || "").trim() === String(product.name || "").trim());
+    if (index < 0) { merged.push(product); continue; }
+    const seed = merged[index];
+    merged[index] = { ...seed, ...product, categoryIds: [...new Set([...(seed.categoryIds || []), ...(product.categoryIds || [])])], levels: product.levels?.length ? product.levels : seed.levels || [] };
+  }
+  return merged;
 };
+const mergeCatalogSettings = (seedSettings, storedSettings) => ({
+  ...seedSettings,
+  ...storedSettings,
+  categories: [...new Map([...(seedSettings?.categories || []), ...(storedSettings?.categories || [])].map((category) => [category.id, category])).values()],
+});
 const customerKey = (customer) => String(customer.id || `${customer.sourceFile || ""}:${customer.sourceRow || ""}:${customer.mobile || customer.name}`);
 const mergeCustomers = (seedCustomers, storedCustomers) => {
   const seed = new Map((Array.isArray(seedCustomers) ? seedCustomers : []).map((customer) => [customerKey(customer), customer]));
@@ -36,7 +44,9 @@ const mergeCustomerSettings = (seedSettings, storedSettings) => ({
 try {
   await client.connect();
   const collection = client.db(database).collection("appState");
-  const existing = await collection.findOne({ _id: "primary" }, { projection: { _id: 1 } });
+  // Read the complete previous document. During a forced seed, reading only
+  // _id used to overwrite categories and their product assignments.
+  const existing = await collection.findOne({ _id: "primary" });
   const data = JSON.parse(await fs.readFile(databasePath, "utf8"));
   if (existing?.seededFromJson && !forceSeed) {
     console.log("MongoDB is already seeded; migration skipped.");
@@ -47,7 +57,7 @@ try {
       ...stored,
       products: mergeProducts(data.products, stored.products),
       customers: mergeCustomers(data.customers, stored.customers),
-      settings: stored.settings || data.settings,
+      settings: mergeCatalogSettings(data.settings, stored.settings),
       tasks: stored.tasks || data.tasks,
       customerNotes: stored.customerNotes || data.customerNotes,
       customerSettings: mergeCustomerSettings(data.customerSettings, stored.customerSettings),

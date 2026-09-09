@@ -3,7 +3,7 @@ import { mongoDatabase } from "@/lib/mongodb";
 
 export const runtime = "nodejs";
 
-const writableSections = new Set(["products", "settings", "tasks", "customerNotes", "customerSettings", "customers", "customerFollowUp", "mobileServices"]);
+const writableSections = new Set(["products", "settings", "catalog", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "mobileServices"]);
 
 type Database = Record<string, unknown>;
 type DatabaseDocument = Database & { _id: string };
@@ -41,6 +41,76 @@ export async function PUT(request: NextRequest) {
         { $push: { "customers.$.followUps": { date: String(followUp.date || "").trim(), note: String(followUp.note).trim() } }, $set: { updatedAt: new Date() } } as never,
       );
       if (!result.matchedCount) return NextResponse.json({ error: "customer not found" }, { status: 404 });
+      return NextResponse.json(await readDatabase());
+    }
+    // Customer changes are single-record mutations. This avoids an open tab
+    // replacing the whole customer list with the stale copy it loaded earlier.
+    if (section === "customerUpsert") {
+      const customer = data as { id?: number };
+      if (!Number.isFinite(customer?.id)) return NextResponse.json({ error: "invalid customer" }, { status: 400 });
+      const result = await collection.updateOne(
+        { _id: "primary", "customers.id": customer.id },
+        { $set: { "customers.$": customer, updatedAt: new Date() } } as never,
+      );
+      if (!result.matchedCount) await collection.updateOne({ _id: "primary" }, { $push: { customers: customer }, $set: { updatedAt: new Date() } } as never, { upsert: true });
+      return NextResponse.json(await readDatabase());
+    }
+    if (section === "customerDelete") {
+      const customer = data as { id?: number };
+      if (!Number.isFinite(customer?.id)) return NextResponse.json({ error: "invalid customer" }, { status: 400 });
+      await collection.updateOne({ _id: "primary" }, { $pull: { customers: { id: customer.id } }, $set: { updatedAt: new Date() } } as never);
+      return NextResponse.json(await readDatabase());
+    }
+    // Bulk imports may still send an array. Merge it with the server copy so a
+    // stale browser tab can add/update imported customers but never erase ones
+    // created elsewhere.
+    if (section === "customers") {
+      if (!Array.isArray(data)) return NextResponse.json({ error: "invalid customers" }, { status: 400 });
+      const current = await collection.findOne({ _id: "primary" }, { projection: { customers: 1 } });
+      const merged = new Map<number, unknown>();
+      for (const customer of Array.isArray(current?.customers) ? current.customers : []) {
+        const id = Number((customer as { id?: unknown }).id);
+        if (Number.isFinite(id)) merged.set(id, customer);
+      }
+      for (const customer of data) {
+        const id = Number((customer as { id?: unknown }).id);
+        if (Number.isFinite(id)) merged.set(id, customer);
+      }
+      await collection.updateOne({ _id: "primary" }, { $set: { customers: [...merged.values()], updatedAt: new Date() } }, { upsert: true });
+      return NextResponse.json(await readDatabase());
+    }
+    // Categories live in settings while product membership lives in categoryIds.
+    // Persist them together so a later product update cannot overwrite the
+    // category list (or leave it out of sync with product assignments).
+    if (section === "catalog") {
+      const catalog = data as { products?: unknown; settings?: unknown };
+      if (!Array.isArray(catalog.products) || !catalog.settings || typeof catalog.settings !== "object") {
+        return NextResponse.json({ error: "invalid catalog" }, { status: 400 });
+      }
+      const current = await collection.findOne({ _id: "primary" }, { projection: { products: 1, settings: 1 } });
+      const previous = new Map<string, Record<string, unknown>>();
+      for (const product of Array.isArray(current?.products) ? current.products : []) {
+        const item = product as Record<string, unknown>;
+        previous.set(`id:${String(item.id ?? "")}`, item);
+        previous.set(`name:${String(item.name ?? "").trim()}`, item);
+      }
+      const protectedProducts = catalog.products.map((product) => {
+        const item = product as Record<string, unknown>;
+        const old = previous.get(`id:${String(item.id ?? "")}`) || previous.get(`name:${String(item.name ?? "").trim()}`);
+        const oldCategories = Array.isArray(old?.categoryIds) ? old.categoryIds : [];
+        const nextCategories = Array.isArray(item.categoryIds) ? item.categoryIds : [];
+        return { ...item, categoryIds: [...new Set([...oldCategories, ...nextCategories])] };
+      });
+      const incomingSettings = catalog.settings as Record<string, unknown>;
+      const oldSettings = (current?.settings || {}) as Record<string, unknown>;
+      const oldCategories = Array.isArray(oldSettings.categories) ? oldSettings.categories : [];
+      const nextCategories = Array.isArray(incomingSettings.categories) ? incomingSettings.categories : [];
+      const protectedSettings = { ...oldSettings, ...incomingSettings, categories: [...new Map([...oldCategories, ...nextCategories].map((category) => [String((category as { id?: unknown }).id ?? ""), category])).values()] };
+      await collection.updateOne(
+        { _id: "primary" },
+        { $set: { products: protectedProducts, settings: protectedSettings, updatedAt: new Date() } },
+        { upsert: true },
+      );
       return NextResponse.json(await readDatabase());
     }
     await collection.updateOne({ _id: "primary" }, { $set: { [section]: data, updatedAt: new Date() } }, { upsert: true });

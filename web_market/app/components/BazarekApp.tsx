@@ -21,7 +21,7 @@ import {
   X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import CustomerDrawer from "./CustomerDrawer";
@@ -149,6 +149,12 @@ const mergeProducts = (base: Product[], saved: Product[]) => {
 
 type ServerDatabase = { products?: unknown; settings?: AppSettings; tasks?: Task[] };
 
+const recoverCategories = (settings: AppSettings, products: Product[]): AppSettings => {
+  const known = new Set(settings.categories.map((category) => category.id));
+  const recovered = products.flatMap((product) => product.categoryIds || []).filter((id) => !known.has(id)).map((id) => ({ id, name: id.replace(/^\d+-/, "") || "دسته‌بندی بازیابی‌شده" }));
+  return recovered.length ? { ...settings, categories: [...settings.categories, ...recovered] } : settings;
+};
+
 const readMongoDatabase = async () => {
   const response = await fetch("/api/database", { cache: "no-store" });
   if (!response.ok) throw new Error("database unavailable");
@@ -156,7 +162,7 @@ const readMongoDatabase = async () => {
 };
 
 let databaseWriteQueue = Promise.resolve();
-const saveMongoSection = (section: "products" | "settings" | "tasks", data: unknown) => {
+const saveMongoSection = (section: "products" | "settings" | "catalog" | "tasks", data: unknown) => {
   databaseWriteQueue = databaseWriteQueue.catch(() => undefined).then(async () => {
     const response = await fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section, data }) });
     if (!response.ok) throw new Error("database update failed");
@@ -170,6 +176,8 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const [view, setView] = useState<View>(initialView);
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const productsRef = useRef<Product[]>([]);
+  const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [databaseLoaded, setDatabaseLoaded] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
@@ -180,11 +188,16 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const [notice, setNotice] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState("name");
+  const saveCatalog = (nextProducts: Product[], nextSettings: AppSettings) => {
+    productsRef.current = nextProducts;
+    settingsRef.current = nextSettings;
+    return saveMongoSection("catalog", { products: nextProducts, settings: nextSettings });
+  };
   const saveProducts = (next: Product[]) => {
     setProducts(next);
-    return saveMongoSection("products", next).then(() => true).catch(() => { setError("ذخیره محصولات در MongoDB ناموفق بود؛ اتصال سرور را بررسی کنید."); return false; });
+    return saveCatalog(next, settingsRef.current).then(() => true).catch(() => { setError("ذخیره محصولات و دسته‌بندی‌ها در MongoDB ناموفق بود؛ اتصال سرور را بررسی کنید."); return false; });
   };
-  const saveSettings = (next: AppSettings) => { setSettings(next); void saveMongoSection("settings", next).catch(() => setError("ذخیره تنظیمات در MongoDB ناموفق بود.")); };
+  const saveSettings = (next: AppSettings) => { setSettings(next); void saveCatalog(productsRef.current, next).catch(() => setError("ذخیره دسته‌بندی‌ها در MongoDB ناموفق بود.")); };
   const saveTasks = (next: Task[]) => { setTasks(next); void saveMongoSection("tasks", next).catch(() => setError("ذخیره تسک در MongoDB ناموفق بود.")); };
   const showNotice = (message: string) => {
     setNotice(message);
@@ -205,8 +218,12 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       const nextProducts = normalizeProducts(database.products);
 
       if (!cancelled) {
+        const nextSettings = recoverCategories(database.settings || DEFAULT_SETTINGS, nextProducts);
+        productsRef.current = nextProducts;
+        settingsRef.current = nextSettings;
         setProducts(nextProducts);
-        setSettings(database.settings || DEFAULT_SETTINGS);
+        setSettings(nextSettings);
+        if (nextSettings !== database.settings) void saveCatalog(nextProducts, nextSettings);
         setTasks(database.tasks || []);
         setDatabaseLoaded(true);
         if (initialView === "landing" && localStorage.getItem("bazarek-role") === "user") {
@@ -1032,7 +1049,7 @@ function Catalog({
           <ExternalLink size={15} />
         </Link>
       </div>
-      {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><Link href="/catalog" className={`rounded-lg border px-3 py-2 text-sm font-bold ${!selectedCategoryId ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 text-oxblood"}`}>همه محصولات</Link>{categories.map((category) => <Link key={category.id} href={`/catalog?category=${encodeURIComponent(category.id)}`} className={`rounded-lg border px-3 py-2 text-sm font-bold ${selectedCategoryId === category.id ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 text-oxblood"}`}>{category.name}</Link>)}</div>}
+      {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><Link href="/catalog" className={`rounded-lg border px-3 py-2 text-sm font-bold ${!selectedCategoryId ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 text-oxblood"}`}>همه محصولات</Link>{categories.map((category) => <Link key={category.id} href={`/catalog/${encodeURIComponent(category.id)}`} className={`rounded-lg border px-3 py-2 text-sm font-bold ${selectedCategoryId === category.id ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 text-oxblood"}`}>{category.name}</Link>)}</div>}
       {selectedCategory && <p className="mt-3 text-xs text-oxblood-dark/55">این لینک فقط محصولات دسته «{selectedCategory.name}» را نشان می‌دهد و قابل ارسال است.</p>}
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {products.map((product) => (
