@@ -36,6 +36,7 @@ type Record = {
   operator: string;
   quantity: number;
   paymentStatus: "settled" | "unsettled";
+  updatedAt?: string;
 };
 type Data = { records: Record[]; serviceTypes: string[]; operators: string[] };
 const empty: Data = { records: [], serviceTypes: [], operators: [] };
@@ -52,6 +53,9 @@ const jalali = () =>
   })
     .format(new Date())
     .replace(/٫/g, "/");
+const customerKey = (record: Pick<Record, "customerName" | "phone">) => digits(record.phone) || record.customerName.trim().toLocaleLowerCase("fa");
+const updatedLabel = (value?: string) => value ? new Intl.DateTimeFormat("fa-IR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "";
+const isFresh = (value?: string) => !!value && Date.now() - new Date(value).getTime() < 24 * 60 * 60 * 1000;
 
 export default function MobileServicesApp() {
   const [data, setData] = useState<Data>(empty),
@@ -99,9 +103,7 @@ export default function MobileServicesApp() {
             ),
           )
           .reduce((m, r) => {
-            const key = String(
-                r.customerId || digits(r.phone) || r.customerName,
-              ),
+            const key = customerKey(r),
               old = m.get(key);
             m.set(
               key,
@@ -180,6 +182,7 @@ export default function MobileServicesApp() {
           operator: operator.trim(),
           quantity: Number(quantity),
           paymentStatus: payment,
+          updatedAt: new Date().toISOString(),
         },
         ...data.records,
       ],
@@ -207,7 +210,9 @@ export default function MobileServicesApp() {
     await save({
       ...data,
       records: data.records.map((r) =>
-        r.id === id ? { ...r, paymentStatus } : r,
+        r.id === id
+          ? { ...r, paymentStatus, updatedAt: new Date().toISOString() }
+          : r,
       ),
     });
   };
@@ -252,6 +257,7 @@ export default function MobileServicesApp() {
             customerName: customer.name,
             phone: customer.mobile,
             address: customer.address,
+            updatedAt: new Date().toISOString(),
           }
         : r,
     );
@@ -460,8 +466,8 @@ export default function MobileServicesApp() {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.id}>
-                    <td>{displayJalaliDate(r.date)}</td>
+                  <tr key={r.id} className={isFresh(r.updatedAt) ? "bg-emerald-50/70" : undefined}>
+                    <td>{displayJalaliDate(r.date)}{r.updatedAt && <small className="mt-1 block text-[10px] text-emerald-700">به‌روزرسانی: {updatedLabel(r.updatedAt)}</small>}</td>
                     <td>
                       <button
                         type="button"

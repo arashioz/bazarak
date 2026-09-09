@@ -99,7 +99,22 @@ export async function PUT(request: NextRequest) {
         const old = previous.get(`id:${String(item.id ?? "")}`) || previous.get(`name:${String(item.name ?? "").trim()}`);
         const oldCategories = Array.isArray(old?.categoryIds) ? old.categoryIds : [];
         const nextCategories = Array.isArray(item.categoryIds) ? item.categoryIds : [];
-        return { ...item, categoryIds: [...new Set([...oldCategories, ...nextCategories])] };
+        // Imports and stale browser tabs may contain only price/name fields.
+        // Keep product metadata that they do not explicitly provide.
+        return {
+          ...old,
+          ...item,
+          unit: String(item.unit || old?.unit || "کیلوگرم"),
+          description: String(item.description || old?.description || ""),
+          categoryIds: [...new Set([...oldCategories, ...nextCategories])],
+          levels: Array.isArray(item.levels) && item.levels.length ? item.levels : old?.levels || [],
+          percentages: Array.isArray(item.percentages) && item.percentages.length ? item.percentages : old?.percentages || [],
+          rounding: Array.isArray(item.rounding) && item.rounding.length ? item.rounding : old?.rounding || [],
+          roundingEnabled: Array.isArray(item.roundingEnabled) && item.roundingEnabled.length ? item.roundingEnabled : old?.roundingEnabled || [],
+          fixedPrices: Array.isArray(item.fixedPrices) && item.fixedPrices.length ? item.fixedPrices : old?.fixedPrices || [],
+          invoices: Array.isArray(item.invoices) && item.invoices.length ? item.invoices : old?.invoices || [],
+          priceHistory: Array.isArray(item.priceHistory) && item.priceHistory.length ? item.priceHistory : old?.priceHistory || [],
+        };
       });
       const incomingSettings = catalog.settings as Record<string, unknown>;
       const oldSettings = (current?.settings || {}) as Record<string, unknown>;

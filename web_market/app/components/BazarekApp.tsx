@@ -23,7 +23,7 @@ import {
 import * as XLSX from "xlsx";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import CustomerDrawer from "./CustomerDrawer";
 
 type Invoice = { price: number; registeredAt: string };
@@ -175,6 +175,7 @@ const saveMongoSection = (section: "products" | "settings" | "catalog" | "tasks"
 export default function BazarekApp({ initialView }: { initialView: View }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const [view, setView] = useState<View>(initialView);
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -258,9 +259,9 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
   const filtered = useMemo(() => products.filter((product) => product.name.includes(q.trim())), [products, q]);
   const visibleProducts = useMemo(() => [...filtered.filter((product) => !categoryFilter || product.categoryIds.includes(categoryFilter))].sort((a, b) => sortMode === "price-asc" ? a.price - b.price : sortMode === "price-desc" ? b.price - a.price : sortMode === "stock-desc" ? b.stock - a.stock : a.name.localeCompare(b.name, "fa")), [filtered, categoryFilter, sortMode]);
-  const catalogCategoryId = searchParams.get("category");
+  const catalogCategoryId = searchParams.get("category") || (pathname.startsWith("/catalog/") ? decodeURIComponent(pathname.slice("/catalog/".length)) : null);
 
-  const add = (event: FormEvent<HTMLFormElement>) => {
+  const add = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") || "").trim();
@@ -272,7 +273,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
     const createdAt = now();
     const getNumber = (key: string) => Number(form.get(key));
-    saveProducts([
+    const saved = await saveProducts([
       {
         id: Date.now(),
         name,
@@ -290,10 +291,11 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         rounding: [getNumber("r1"), getNumber("r2"), getNumber("r3")],
         roundingEnabled: [true, true, true],
         fixedPrices: [],
-        categoryIds: [],
+        categoryIds: form.getAll("categoryIds").map(String),
       },
       ...products,
     ]);
+    if (!saved) return;
     event.currentTarget.reset();
     setError("");
     setShowAddProduct(false);
@@ -435,7 +437,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       {notice && <div role="status" className="fixed top-5 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-xl">{notice}</div>}
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         {view === "catalog" ? (
-          <Catalog products={visibleProducts.filter((product) => product.active && (!catalogCategoryId || product.categoryIds.includes(catalogCategoryId)))} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} onSelect={setSelected} />
+          <Catalog products={products.filter((product) => product.active && (!catalogCategoryId || product.categoryIds.map(String).includes(String(catalogCategoryId))))} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} onSelect={setSelected} />
         ) : isAdmin ? (
           <Admin
             products={visibleProducts}
@@ -470,7 +472,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       </div>
       <CategoryFilter categories={settings.categories} products={products} value={categoryFilter} onChange={setCategoryFilter} sortMode={sortMode} onSort={setSortMode} />
       {showAddProduct && (
-        <AddProductSheet labels={settings.columnLabels} onClose={() => setShowAddProduct(false)} onAdd={add} error={error} />
+        <AddProductSheet labels={settings.columnLabels} categories={settings.categories} onClose={() => setShowAddProduct(false)} onAdd={add} error={error} />
       )}
       {selected && (
         <Detail
@@ -498,6 +500,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             const form = new FormData(event.currentTarget);
             const nextSelected = {
               ...selected,
+              name: String(form.get("name") || selected.name).trim(),
               unit: String(form.get("unit") === "__custom__" ? form.get("unitManual") : form.get("unit") || selected.unit).trim(),
               description: String(form.get("description") || "").trim(),
               levels: (() => { try { const value = JSON.parse(String(form.get("levels") || "[]")); return Array.isArray(value) ? value.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(selected.price, level) }) : []; } catch { return selected.levels || []; } })(),
@@ -976,11 +979,13 @@ function TaskPanel({
 
 function AddProductSheet({
   labels,
+  categories,
   onClose,
   onAdd,
   error,
 }: {
   labels: string[];
+  categories: { id: string; name: string }[];
   onClose: () => void;
   onAdd: (event: FormEvent<HTMLFormElement>) => void;
   error: string;
@@ -1020,6 +1025,7 @@ function AddProductSheet({
           <input name="featured" type="checkbox" className="accent-oxblood" />
           محصول برتر
         </label>
+        {!!categories.length && <fieldset className="mt-4 rounded-lg border border-oxblood/10 p-3"><legend className="px-1 text-sm font-bold">دسته‌بندی محصول</legend><div className="mt-2 flex flex-wrap gap-2">{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name="categoryIds" value={category.id} type="checkbox" className="ml-2 accent-oxblood"/>{category.name}</label>)}</div></fieldset>}
         <div className="mt-5 grid grid-cols-3 gap-2">
           {labels.map((label, index) => (
             <div key={label} className="rounded-lg border border-oxblood/10 p-2 text-xs">
@@ -1187,6 +1193,7 @@ function Detail({
             </form>
             <form onSubmit={(event) => { event.preventDefault(); if (savingPricing) return; setSavingPricing(true); void onUpdatePricing(event).finally(() => setSavingPricing(false)); }} className="mt-5 rounded-lg border border-oxblood/10 bg-blush p-3">
               <h3 className="font-black">ویرایش مشخصات و قیمت‌گذاری محصول</h3>
+              <label className="mt-3 block text-xs">نام محصول<input required name="name" defaultValue={product.name} className="mt-1 w-full rounded border border-oxblood/15 bg-white p-2 font-bold" /></label>
             <fieldset className="mt-3"><legend className="text-xs">واحد اندازه‌گیری</legend><input type="hidden" name="unit" value={selectedUnit} /><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{units.map((unit) => <button key={unit} type="button" onClick={() => { setSelectedUnit(unit); setCustomUnit(false); }} className={`rounded-lg border px-3 py-2 text-sm font-bold transition ${selectedUnit === unit ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 bg-white text-oxblood"}`}>{unit}</button>)}<button type="button" onClick={() => { setSelectedUnit("__custom__"); setCustomUnit(true); }} className={`rounded-lg border px-3 py-2 text-sm font-bold transition ${customUnit ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 bg-white text-oxblood"}`}>واحد دستی</button></div>{customUnit && <input name="unitManual" defaultValue={units.includes(product.unit) ? "" : product.unit} placeholder="واحد را بنویسید" className="mt-2 w-full rounded border border-oxblood/15 p-2" />}</fieldset>
               <label className="mt-3 block text-xs">توضیحات محصول<textarea name="description" defaultValue={product.description} rows={3} placeholder="توضیحات، نکات خرید یا مشخصات محصول..." className="mt-1 w-full rounded border border-oxblood/15 bg-white p-2" /></label>
               <input type="hidden" name="levels" value={JSON.stringify(levels)} />
@@ -1200,7 +1207,7 @@ function Detail({
                   <input value={level.percent ?? ""} onChange={(event) => updateLevelPercent(index, event.target.value === "" ? undefined : parseAmount(event.target.value))} placeholder="درصد سود" type="text" inputMode="decimal" className="rounded border border-oxblood/15 p-2 text-xs" />
                   <input value={level.price || ""} onChange={(event) => updateLevelPrice(index, parsePriceAmount(event.target.value))} placeholder="قیمت فروش" type="text" inputMode="numeric" className="rounded border border-oxblood/15 bg-white p-2 text-xs font-bold text-oxblood" />
                   <input value={level.rounding ?? ""} onChange={(event) => setLevels(levels.map((item, itemIndex) => { if (itemIndex !== index) return item; const rounding = event.target.value === "" ? undefined : parseAmount(event.target.value); const next = { ...item, rounding }; return next.percent === undefined ? next : { ...next, price: levelPriceForBasePrice(product.price, next) }; }))} placeholder="گام رند (مثلاً ۱۰۰۰۰ ریال)" type="text" inputMode="numeric" className="rounded border border-oxblood/15 p-2 text-xs" />
-                  <select value={level.roundingMode || "none"} onChange={(event) => setLevels(levels.map((item, itemIndex) => { if (itemIndex !== index) return item; const next = { ...item, roundingMode: event.target.value as ProductLevel["roundingMode"] }; return next.percent === undefined ? next : { ...next, price: levelPriceForBasePrice(product.price, next) }; }))} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select>
+                  <div><select value={level.roundingMode || "none"} onChange={(event) => setLevels(levels.map((item, itemIndex) => { if (itemIndex !== index) return item; const next = { ...item, roundingMode: event.target.value as ProductLevel["roundingMode"] }; return next.percent === undefined ? next : { ...next, price: levelPriceForBasePrice(product.price, next) }; }))} className="w-full rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select><output className="mt-1 block text-center text-[10px] font-bold text-emerald-700">قیمت زنده: {money(level.price)}</output></div>
                   <button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button>
                 </div>)}</div>
               </div>

@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import BazarekApp from "../../components/BazarekApp";
+import { Suspense } from "react";
 
-export default function CategoryCatalogPage({ params }: { params: { categoryId: string } }) {
-  redirect(`/catalog?category=${encodeURIComponent(params.categoryId)}`);
+export default function CategoryCatalogPage() {
+  return <Suspense><BazarekApp initialView="catalog" /></Suspense>;
 }
