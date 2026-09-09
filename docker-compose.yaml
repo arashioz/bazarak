@@ -13,6 +13,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  migrate:
+    # A one-shot tool. It has access to legacy source files only while importing
+    # them, and is never started as part of the application.
+    profiles: ["tools"]
+    build:
+      context: ./web_market
+      dockerfile: Dockerfile
+      target: build
+    command: node scripts/migrate-sources-to-mongo.mjs
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/bazarek
+      MONGODB_DB: bazarek
+    depends_on:
+      mongo:
+        condition: service_healthy
+
   mongo:
     image: mongo:7
     volumes:

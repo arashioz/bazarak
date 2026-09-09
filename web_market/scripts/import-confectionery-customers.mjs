@@ -5,7 +5,6 @@ import { MongoClient } from "mongodb";
 
 const root = process.cwd();
 const publicDirectory = path.join(root, "public");
-const backupDatabasePath = path.join(root, "app", "data", "database.json");
 const sourceFile = (await fs.readdir(publicDirectory)).find((name) => name.includes("لیست مشتریان لوازم شیرینی") && /\.xlsx$/i.test(name));
 const mongoUri = process.env.MONGODB_URI;
 if (!mongoUri) throw new Error("MONGODB_URI is required to import customers.");
@@ -65,7 +64,8 @@ const client = new MongoClient(mongoUri);
 await client.connect();
 const collection = client.db(process.env.MONGODB_DB || "bazarek").collection("appState");
 const stored = await collection.findOne({ _id: "primary" });
-const database = stored ? (() => { const { _id, ...data } = stored; return data; })() : JSON.parse(await fs.readFile(backupDatabasePath, "utf8"));
+if (!stored) throw new Error("MongoDB has not been initialized; run npm run migrate:mongodb first.");
+const database = (() => { const { _id, ...data } = stored; return data; })();
 const previousCustomers = Array.isArray(database.customers) ? database.customers : [];
 database.customers = [...previousCustomers.filter((customer) => customer.sourceFile !== sourceFile), ...importedCustomers];
 const settings = database.customerSettings || { categories: [], assignments: {} };

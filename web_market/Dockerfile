@@ -17,14 +17,10 @@ ENV MONGODB_DB=bazarek
 
 WORKDIR /app
 
-COPY --from=build /app/public ./public
+COPY --from=build /app/public/fonts ./public/fonts
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
-COPY --from=build /app/app/data/database.json ./app/data/database.json
-COPY --from=build /app/scripts/migrate-json-to-mongo.mjs ./scripts/migrate-json-to-mongo.mjs
-COPY --from=build /app/scripts/import-persons-customers.mjs ./scripts/import-persons-customers.mjs
-COPY --from=build /app/scripts/seed-mobile-services.mjs ./scripts/seed-mobile-services.mjs
-COPY --from=build /app/app/data/mobile-services.json ./app/data/mobile-services.json
+COPY --from=build /app/scripts/ensure-mongo-appstate.mjs ./scripts/ensure-mongo-appstate.mjs
 COPY --from=build /app/node_modules/xlsx ./node_modules/xlsx
 COPY --from=build /app/node_modules/adler-32 ./node_modules/adler-32
 COPY --from=build /app/node_modules/cfb ./node_modules/cfb
@@ -36,4 +32,4 @@ COPY --from=build /app/node_modules/word ./node_modules/word
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "node scripts/migrate-json-to-mongo.mjs && node server.js"]
+CMD ["sh", "-c", "node scripts/ensure-mongo-appstate.mjs && node server.js"]

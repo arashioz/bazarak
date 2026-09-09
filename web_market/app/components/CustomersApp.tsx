@@ -1,6 +1,6 @@
 "use client";
 
-import {
+import { 
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -15,6 +15,7 @@ import {
 import * as XLSX from "xlsx";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { confirmDelete } from "@/app/lib/confirm-delete";
 
 type FollowUp = { date: string; note: string };
 type Customer = {
@@ -81,7 +82,6 @@ export default function CustomersApp() {
     assignments: {},
   });
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [showCategoryFilter, setShowCategoryFilter] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -155,7 +155,7 @@ export default function CustomersApp() {
         (!categoryFilter ||
           customerSettings.assignments[customer.id] === categoryFilter),
     );
-  }, [query, categoryFilter, customerSettings]);
+  }, [customers, query, categoryFilter, customerSettings]);
   const toggleSelection = (id: number) =>
     setSelectedIds((ids) =>
       ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id],
@@ -305,6 +305,10 @@ export default function CustomersApp() {
           </div>
         </header>
         <div className="mt-5">
+          <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+            <button type="button" onClick={() => setCategoryFilter("")} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${!categoryFilter ? "bg-oxblood text-white" : "bg-white text-oxblood ring-1 ring-oxblood/15"}`}>همهٔ مشتریان</button>
+            {customerSettings.categories.map((category) => <button type="button" key={category.id} onClick={() => setCategoryFilter(category.id)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${categoryFilter === category.id ? "bg-oxblood text-white" : "bg-white text-oxblood ring-1 ring-oxblood/15"}`}>{category.name}</button>)}
+          </div>
           <div className="relative">
             <Search
               className="absolute right-3 top-3 text-oxblood/45"
@@ -416,25 +420,6 @@ export default function CustomersApp() {
           })}
         </div>
       </section>
-      <button
-        type="button"
-        onClick={() => setShowCategoryFilter(true)}
-        className="fixed bottom-5 right-5 z-20 rounded-full bg-oxblood px-5 py-3 text-sm font-bold text-white shadow-lg"
-      >
-        {categoryFilter ? "دستهٔ انتخاب‌شده" : "فیلتر دسته‌ها"}
-      </button>
-      {showCategoryFilter && (
-        <CustomerCategoryFilter
-          customers={customers}
-          settings={customerSettings}
-          value={categoryFilter}
-          onChange={(value) => {
-            setCategoryFilter(value);
-            setShowCategoryFilter(false);
-          }}
-          onClose={() => setShowCategoryFilter(false)}
-        />
-      )}{" "}
       {showSettings && (
         <CustomerCategorySettings
           settings={customerSettings}
@@ -575,18 +560,12 @@ function CustomerCategorySettings({
           >
             <span>{category.name}</span>
             <button
-              onClick={() =>
-                onSave({
-                  ...settings,
-                  categories: settings.categories.filter(
-                    (item) => item.id !== category.id,
-                  ),
-                })
-              }
+              onClick={() => { const nextName = window.prompt("نام جدید دسته", category.name)?.trim(); if (nextName) onSave({ ...settings, categories: settings.categories.map((item) => item.id === category.id ? { ...item, name: nextName } : item) }); }}
               className="text-oxblood"
             >
-              حذف
+              ویرایش
             </button>
+            <button onClick={() => { if (confirmDelete(`دسته «${category.name}»`)) onSave({ ...settings, categories: settings.categories.filter((item) => item.id !== category.id) }); }} className="mr-3 text-red-700">حذف</button>
           </div>
         ))}
       </section>
@@ -792,7 +771,7 @@ function CustomerDetail({
     }
   };
   const deleteProfile = async () => {
-    if (!window.confirm(`مشتری «${customer.name}» حذف شود؟`)) return;
+    if (!confirmDelete(`مشتری «${customer.name}»`)) return;
     const response = await fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "customerDelete", data: { id: customer.id } }) });
     if (!response.ok) { window.alert("حذف مشتری از MongoDB ناموفق بود."); return; }
     onClose();

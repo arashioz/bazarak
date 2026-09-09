@@ -14,6 +14,7 @@ import {
   displayJalaliDate,
   findMobileServiceCustomers,
 } from "@/lib/mobile-service-customers";
+import { confirmDelete } from "@/app/lib/confirm-delete";
 
 type Customer = {
   id: number;
@@ -203,7 +204,7 @@ export default function MobileServicesApp() {
     setQuantity("");
   };
   const remove = async (id: number) => {
-    if (window.confirm("این سابقه حذف شود؟"))
+    if (confirmDelete("این سابقه خدمات"))
       await save({ ...data, records: data.records.filter((r) => r.id !== id) });
   };
   const setPaymentStatus = async (id: number, paymentStatus: Record["paymentStatus"]) => {

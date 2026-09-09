@@ -25,6 +25,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import CustomerDrawer from "./CustomerDrawer";
+import { confirmDelete } from "@/app/lib/confirm-delete";
 
 type Invoice = { price: number; registeredAt: string };
 type PriceHistory = { previousPrice: number; price: number; changedAt: string };
@@ -84,6 +85,11 @@ const date = (value: string) =>
   new Date(value).toLocaleDateString("fa-IR", { year: "numeric", month: "2-digit", day: "2-digit" });
 const dateTime = (value: string) =>
   new Date(value).toLocaleString("fa-IR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+const priceChangeTime = (change?: PriceHistory) => {
+  const value = change ? Date.parse(change.changedAt) : 0;
+  return Number.isFinite(value) ? value : 0;
+};
+const sortedPriceHistory = (history: PriceHistory[]) => [...history].sort((a, b) => priceChangeTime(b) - priceChangeTime(a));
 const sale = (product: Product, index: number) => {
   if (product.fixedPrices[index] > 0) return product.fixedPrices[index];
   const exact = product.price * (1 + product.percentages[index] / 100);
@@ -384,7 +390,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const exportExcel = () => {
     const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...products.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || products.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`);
     const rows = [...products].sort((a, b) => Number(b.featured) - Number(a.featured)).map((product) => {
-      const lastChange = product.priceHistory[0];
+      const lastChange = sortedPriceHistory(product.priceHistory)[0];
       return {
         "نام محصول": product.name,
         "قیمت خرید فعلی": product.price,
@@ -394,7 +400,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         "قیمت قبل از آخرین تغییر": lastChange ? lastChange.previousPrice : "",
         "تاریخ آخرین تغییر": lastChange ? dateTime(lastChange.changedAt) : "",
         "تعداد تغییر قیمت": product.priceHistory.length,
-        "تاریخچه تغییر قیمت": product.priceHistory.map((change) => `${money(change.previousPrice)} ← ${money(change.price)} | ${dateTime(change.changedAt)}`).join("\n"),
+        "تاریخچه تغییر قیمت": sortedPriceHistory(product.priceHistory).map((change) => `${money(change.previousPrice)} ← ${money(change.price)} | ${dateTime(change.changedAt)}`).join("\n"),
         ...Object.fromEntries(exportLabels.map((label, index) => [label, product.levels?.[index]?.price ?? sale(product, index)])),
       };
     });
@@ -498,15 +504,16 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
           onUpdatePricing={async (event) => {
             event.preventDefault();
             const form = new FormData(event.currentTarget);
+            const levels = (() => { try { const value = JSON.parse(String(form.get("levels") || "[]")); return Array.isArray(value) ? value.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(selected.price, level) }) : []; } catch { return selected.levels || []; } })();
             const nextSelected = {
               ...selected,
               name: String(form.get("name") || selected.name).trim(),
               unit: String(form.get("unit") === "__custom__" ? form.get("unitManual") : form.get("unit") || selected.unit).trim(),
               description: String(form.get("description") || "").trim(),
-              levels: (() => { try { const value = JSON.parse(String(form.get("levels") || "[]")); return Array.isArray(value) ? value.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(selected.price, level) }) : []; } catch { return selected.levels || []; } })(),
-              percentages: settings.columnLabels.map((_, index) => Number(form.get(`p${index + 1}`)) || 0),
-              rounding: settings.columnLabels.map((_, index) => Number(form.get(`r${index + 1}`)) || 1000),
-              roundingEnabled: settings.columnLabels.map((_, index) => form.get(`round${index + 1}`) === "on"),
+              levels,
+              percentages: settings.columnLabels.map((_, index) => Number(levels[index]?.percent ?? selected.percentages[index] ?? 0)),
+              rounding: selected.rounding,
+              roundingEnabled: selected.roundingEnabled,
               categoryIds: settings.categories.filter((category) => form.get(`category-${category.id}`) === "on").map((category) => category.id),
               updated: now(),
             };
@@ -522,7 +529,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
 function CategoryFilter({ categories, products, value, onChange, sortMode, onSort }: { categories: { id: string; name: string }[]; products: Product[]; value: string | null; onChange: (value: string | null) => void; sortMode: string; onSort: (value: string) => void }) {
   const [open, setOpen] = useState(false);
-  return <><button onClick={() => setOpen(true)} className="fixed bottom-5 left-1/2 z-20 -translate-x-1/2 rounded-full bg-oxblood px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-oxblood-dark">فیلتر و دسته‌بندی</button>{open && <div className="fixed inset-0 z-30 flex items-center justify-end"><button onClick={() => setOpen(false)} className="absolute inset-0 bg-oxblood-dark/40" aria-label="بستن"/><section className="relative h-full w-[92vw] max-w-md overflow-y-auto bg-white p-5 shadow-2xl"><h2 className="text-lg font-black">فیلتر و مرتب‌سازی</h2><select value={sortMode} onChange={(event) => onSort(event.target.value)} className="mt-4 w-full rounded-lg border border-oxblood/15 p-3"><option value="name">نام محصول</option><option value="price-asc">قیمت: کم به زیاد</option><option value="price-desc">قیمت: زیاد به کم</option><option value="stock-desc">بیشترین موجودی</option></select><p className="mt-4 text-xs text-oxblood-dark/55">دسته‌بندی موردنظر را انتخاب کنید.</p><div className="mt-2 space-y-2"><button onClick={() => { onChange(null); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${!value ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>همه محصولات</span><b>{products.filter((product) => product.active).length}</b></button>{categories.map((category) => { const count = products.filter((product) => product.active && product.categoryIds.includes(category.id)).length; return <button key={category.id} onClick={() => { onChange(category.id); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${value === category.id ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>{category.name}</span><b>{count} محصول</b></button>; })}</div></section></div>}</>;
+  return <><button onClick={() => setOpen(true)} className="fixed left-4 top-[calc(50%+1rem)] z-30 rounded-full bg-oxblood px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-oxblood-dark">فیلتر دسته‌ها</button>{open && <div className="fixed inset-0 z-40 flex justify-end"><button onClick={() => setOpen(false)} className="absolute inset-0 bg-oxblood-dark/40" aria-label="بستن"/><section className="relative h-full w-[92vw] max-w-md overflow-y-auto bg-white p-5 shadow-2xl animate-in slide-in-from-right duration-200"><h2 className="text-lg font-black">فیلتر و مرتب‌سازی</h2><select value={sortMode} onChange={(event) => onSort(event.target.value)} className="mt-4 w-full rounded-lg border border-oxblood/15 p-3"><option value="name">نام محصول</option><option value="price-asc">قیمت: کم به زیاد</option><option value="price-desc">قیمت: زیاد به کم</option><option value="stock-desc">بیشترین موجودی</option></select><p className="mt-4 text-xs text-oxblood-dark/55">دسته‌بندی موردنظر را انتخاب کنید.</p><div className="mt-2 space-y-2"><button onClick={() => { onChange(null); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${!value ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>همه محصولات</span><b>{products.filter((product) => product.active).length}</b></button>{categories.map((category) => { const count = products.filter((product) => product.active && product.categoryIds.includes(category.id)).length; return <button key={category.id} onClick={() => { onChange(category.id); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${value === category.id ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>{category.name}</span><b>{count} محصول</b></button>; })}</div></section></div>}</>;
 }
 
 function Landing({ navigate }: { navigate: (nextView: View, path: string) => void }) {
@@ -846,9 +853,9 @@ function Admin({
         <ReportsPanel products={products} categories={categories} importReports={importReports} onSelect={onSelect} onExportCategory={onExportCategoryExcel} currency={currency}/>
       )}
       {showSettings && (
-        <div className="fixed inset-0 z-20 flex items-end justify-center">
+        <div className="fixed inset-0 z-50">
           <div onClick={() => setShowSettings(false)} className="absolute inset-0 bg-oxblood-dark/45" />
-          <section className="relative w-full rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-2xl sm:p-6">
+          <section className="relative h-full w-full overflow-y-auto bg-white p-5 shadow-2xl sm:p-8">
             <button onClick={() => setShowSettings(false)} className="absolute left-4 top-4 text-oxblood/65" aria-label="بستن"><X /></button>
             <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-oxblood/20" />
             <h2 className="flex items-center gap-2 text-xl font-black"><Settings2 size={20} /> تنظیمات ستون‌ها</h2>
@@ -869,12 +876,14 @@ function Admin({
 }
 
 function ReportsPanel({ products, categories, importReports, onSelect, onExportCategory, currency }: { products: Product[]; categories: { id: string; name: string }[]; importReports: ImportReport[]; onSelect: (product: Product) => void; onExportCategory: (category: { id: string; name: string }) => void; currency: Currency }) {
-  return <div className="mt-5 space-y-5"><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش دسته‌بندی‌ها</h2><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => { const items = products.filter((product) => product.categoryIds.includes(category.id)); return <article key={category.id} className="rounded-lg bg-blush p-3"><b>{category.name}</b><span className="mt-2 block text-sm">{items.length.toLocaleString("fa-IR")} محصول</span><small className="mt-1 block text-oxblood-dark/55">{items.filter((item) => item.active).length.toLocaleString("fa-IR")} فعال</small><button type="button" onClick={() => onExportCategory(category)} className="mt-3 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">خروجی اکسل این دسته</button></article>; })}</div>{!categories.length && <p className="mt-3 text-sm text-oxblood-dark/55">هنوز دسته‌ای برای محصولات ساخته نشده است.</p>}</section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش هر محصول</h2><div className="mt-3 space-y-2">{products.map((product) => <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg bg-blush p-3"><div><b>{product.name}</b><small className="mt-1 block text-xs text-oxblood-dark/55">قیمت فعلی: {money(product.price)} {currencyTitle(currency)} · {product.priceHistory.length.toLocaleString("fa-IR")} تغییر قیمت</small></div><button type="button" onClick={() => onSelect(product)} className="shrink-0 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">گزارش محصول</button></div>)}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش ورود فایل‌ها</h2>{importReports.length ? <div className="mt-3 space-y-2">{importReports.map((report) => <article key={report.id} className="rounded-lg bg-blush p-3"><b className="block break-all text-sm">{report.fileName}</b><small className="mt-1 block text-xs text-oxblood-dark/55">{dateTime(report.importedAt)}</small><div className="mt-2 flex flex-wrap gap-2 text-xs"><span>جدید: {report.added.toLocaleString("fa-IR")}</span><span>تغییر قیمت: {report.priceChanged.toLocaleString("fa-IR")}</span><span>بدون تغییر: {report.unchanged.toLocaleString("fa-IR")}</span></div></article>)}</div> : <p className="mt-3 text-sm text-oxblood-dark/55">هنوز گزارشی از ورود اکسل محصولات ثبت نشده است.</p>}</section></div>;
+  const productsByLatestChange = [...products].sort((a, b) => priceChangeTime(sortedPriceHistory(b.priceHistory)[0]) - priceChangeTime(sortedPriceHistory(a.priceHistory)[0]));
+  return <div className="mt-5 space-y-5"><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش دسته‌بندی‌ها</h2><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => { const items = products.filter((product) => product.categoryIds.includes(category.id)); return <article key={category.id} className="rounded-lg bg-blush p-3"><b>{category.name}</b><span className="mt-2 block text-sm">{items.length.toLocaleString("fa-IR")} محصول</span><small className="mt-1 block text-oxblood-dark/55">{items.filter((item) => item.active).length.toLocaleString("fa-IR")} فعال</small><button type="button" onClick={() => onExportCategory(category)} className="mt-3 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">خروجی اکسل این دسته</button></article>; })}</div>{!categories.length && <p className="mt-3 text-sm text-oxblood-dark/55">هنوز دسته‌ای برای محصولات ساخته نشده است.</p>}</section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش هر محصول</h2><div className="mt-3 space-y-2">{productsByLatestChange.map((product) => { const latestChange = sortedPriceHistory(product.priceHistory)[0]; return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg bg-blush p-3"><div><b>{product.name}</b><small className="mt-1 block text-xs text-oxblood-dark/55">قیمت فعلی: {money(product.price)} {currencyTitle(currency)} · {product.priceHistory.length.toLocaleString("fa-IR")} تغییر قیمت</small><small className="mt-1 block text-xs text-oxblood-dark/45">{latestChange ? `آخرین تغییر: ${dateTime(latestChange.changedAt)}` : "بدون تغییر قیمت"}</small></div><button type="button" onClick={() => onSelect(product)} className="shrink-0 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">گزارش محصول</button></div>; })}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش ورود فایل‌ها</h2>{importReports.length ? <div className="mt-3 space-y-2">{importReports.map((report) => <article key={report.id} className="rounded-lg bg-blush p-3"><b className="block break-all text-sm">{report.fileName}</b><small className="mt-1 block text-xs text-oxblood-dark/55">{dateTime(report.importedAt)}</small><div className="mt-2 flex flex-wrap gap-2 text-xs"><span>جدید: {report.added.toLocaleString("fa-IR")}</span><span>تغییر قیمت: {report.priceChanged.toLocaleString("fa-IR")}</span><span>بدون تغییر: {report.unchanged.toLocaleString("fa-IR")}</span></div></article>)}</div> : <p className="mt-3 text-sm text-oxblood-dark/55">هنوز گزارشی از ورود اکسل محصولات ثبت نشده است.</p>}</section></div>;
 }
 
 function CategoryForm({ categories, onChange }: { categories: { id: string; name: string }[]; onChange: (categories: { id: string; name: string }[]) => void }) {
-  const [name, setName] = useState("");
-  return <section className="mt-4 rounded-lg border border-oxblood/10 p-4"><h3 className="font-black">دسته‌بندی محصولات</h3><form onSubmit={(event) => { event.preventDefault(); const value = name.trim(); if (!value) return; onChange([...categories, { id: `${Date.now()}-${value}`, name: value }]); setName(""); }} className="mt-3 flex gap-2"><input value={name} onChange={(event) => setName(event.target.value)} placeholder="نام دسته" className="min-w-0 flex-1 rounded border border-oxblood/15 p-2"/><button className="rounded bg-oxblood px-3 text-sm font-bold text-white">افزودن</button></form><div className="mt-3 flex flex-wrap gap-2">{categories.map((category) => <span key={category.id} className="rounded-full bg-blush px-3 py-1 text-sm">{category.name}<button type="button" onClick={() => onChange(categories.filter((item) => item.id !== category.id))} className="mr-2 text-oxblood">×</button></span>)}</div></section>;
+  const [name, setName] = useState(""); const [editingId, setEditingId] = useState(""); const [editingName, setEditingName] = useState("");
+  const saveName = () => { const value = editingName.trim(); if (!value) return; onChange(categories.map((category) => category.id === editingId ? { ...category, name: value } : category)); setEditingId(""); };
+  return <section className="mt-4 rounded-lg border border-oxblood/10 p-4"><h3 className="font-black">دسته‌بندی محصولات</h3><form onSubmit={(event) => { event.preventDefault(); const value = name.trim(); if (!value) return; onChange([...categories, { id: `${Date.now()}-${value}`, name: value }]); setName(""); }} className="mt-3 flex gap-2"><input value={name} onChange={(event) => setName(event.target.value)} placeholder="نام دسته" className="min-w-0 flex-1 rounded border border-oxblood/15 p-2"/><button className="rounded bg-oxblood px-3 text-sm font-bold text-white">افزودن</button></form><div className="mt-3 space-y-2">{categories.map((category) => editingId === category.id ? <div key={category.id} className="flex gap-2"><input autoFocus value={editingName} onChange={(event) => setEditingName(event.target.value)} className="min-w-0 flex-1 rounded border border-oxblood/15 p-2"/><button type="button" onClick={saveName} className="rounded bg-oxblood px-3 text-sm font-bold text-white">ذخیره</button><button type="button" onClick={() => setEditingId("")} className="rounded border px-3 text-sm">لغو</button></div> : <div key={category.id} className="flex items-center justify-between rounded-lg bg-blush px-3 py-2"><span>{category.name}</span><span className="flex gap-3"><button type="button" onClick={() => { setEditingId(category.id); setEditingName(category.name); }} className="text-sm font-bold text-oxblood">ویرایش</button><button type="button" onClick={() => { if (confirmDelete(`دسته «${category.name}»`)) onChange(categories.filter((item) => item.id !== category.id)); }} className="text-sm font-bold text-red-700">حذف</button></span></div>)}</div></section>;
 }
 
 function CatalogSettingsForm({ contact, categories, onSave }: { contact: CatalogContact; categories: { id: string; name: string }[]; onSave: (contact: CatalogContact) => void }) {
@@ -966,7 +975,7 @@ function TaskPanel({
               </span>
               <span className={task.done ? "text-oxblood-dark/40 line-through" : ""}>{task.text}</span>
             </button>
-            <button type="button" onClick={() => onDeleteTask(task.id)} className="rounded-md p-2 text-oxblood/55 hover:bg-blush hover:text-oxblood" aria-label="حذف تسک">
+            <button type="button" onClick={() => { if (confirmDelete(`تسک «${task.text}»`)) onDeleteTask(task.id); }} className="rounded-md p-2 text-oxblood/55 hover:bg-blush hover:text-oxblood" aria-label="حذف تسک">
               <Trash2 size={17} />
             </button>
           </div>
@@ -1234,7 +1243,7 @@ function Detail({
               تاریخچه تغییر قیمت
             </h3>
             {product.priceHistory.length ? <ul className="mt-3 space-y-2 text-sm">
-              {product.priceHistory.map((change, index) => (
+              {sortedPriceHistory(product.priceHistory).map((change, index) => (
                 <li key={`${change.changedAt}-${index}`} className="rounded-lg border border-oxblood/10 p-3">
                   <span className="font-black text-oxblood">{money(change.previousPrice)} ← {money(change.price)} تومان</span>
                   <span className="mt-1 block text-xs text-oxblood-dark/45">{dateTime(change.changedAt)}</span>
