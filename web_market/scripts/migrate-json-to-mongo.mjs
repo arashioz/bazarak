@@ -5,7 +5,6 @@ import { MongoClient } from "mongodb";
 const uri = process.env.MONGODB_URI || "mongodb://mongo:27017/bazarek";
 
 const database = process.env.MONGODB_DB || "bazarek";
-const forceSeed = process.env.FORCE_SEED === "1";
 const databasePath = path.join(process.cwd(), "app", "data", "database.json");
 const client = new MongoClient(uri);
 
@@ -48,8 +47,11 @@ try {
   // _id used to overwrite categories and their product assignments.
   const existing = await collection.findOne({ _id: "primary" });
   const data = JSON.parse(await fs.readFile(databasePath, "utf8"));
-  if (existing?.seededFromJson && !forceSeed) {
-    console.log("MongoDB is already seeded; migration skipped.");
+  // Startup must never modify an existing app database. Rebuilds/recreates run
+  // this script too, so even a force-seed environment flag must not be able to
+  // reset prices, descriptions, levels, categories, or customers.
+  if (existing) {
+    console.log("MongoDB already contains app data; startup seed skipped.");
   } else {
     const { _id, ...stored } = existing || {};
     await collection.updateOne({ _id: "primary" }, { $set: {
@@ -64,7 +66,7 @@ try {
       seededFromJson: true,
       migratedAt: new Date(),
     } }, { upsert: true });
-    console.log(forceSeed ? "MongoDB seed was refreshed from database.json." : "All database.json data was seeded into MongoDB.");
+    console.log("Empty MongoDB was seeded from database.json.");
   }
 } finally {
   await client.close();
