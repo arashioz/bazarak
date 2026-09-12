@@ -1142,7 +1142,7 @@ function Catalog({
 }) {
   const selectedCategory = categories.find((category) => categoryId(category.id) === selectedCategoryId);
   return (
-    <section>
+    <section className="catalog-page">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black text-oxblood">{selectedCategory ? `کاتالوگ ${selectedCategory.name}` : "کاتالوگ بازارک"}</h1>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const publicPaths = ["/catalog", "/modir/login", "/api/catalog", "/api/auth/login"];
+const publicPaths = ["/catalog", "/modir/login", "/api/catalog", "/api/auth/login", "/fonts", "/bazarak/fonts"];
 
 const secret = () => process.env.ADMIN_SESSION_SECRET || "bazarek-admin-session-change-this-secret";
 const decode = (value: string) => {

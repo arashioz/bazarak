@@ -46,6 +46,12 @@ body {
   font-family: "Vazirmatn", Tahoma, Arial, sans-serif;
 }
 
+/* Catalog links open as standalone public pages, so enforce the app font there too. */
+.catalog-page,
+.catalog-page * {
+  font-family: "Vazirmatn", Tahoma, Arial, sans-serif;
+}
+
 button,
 input,
 textarea {
