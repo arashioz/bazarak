@@ -13,6 +13,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  bazarek-map:
+    build:
+      context: ./bazarak-map
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    environment:
+      # Intentionally identical to bazarek: the map reads/writes appState in
+      # the primary database, not a second database.
+      MONGODB_URI: mongodb://mongo:27017/bazarek
+      MONGODB_DB: bazarek
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
   migrate:
     # A one-shot tool. It has access to legacy source files only while importing
     # them, and is never started as part of the application.

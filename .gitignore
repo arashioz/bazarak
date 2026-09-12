@@ -8,6 +8,8 @@ web_market/node_modules/
 # Environment files
 web_market/.env*
 !web_market/.env.example
+bazarak-map/.env*
+!bazarak-map/.env.example
 
 # Logs and local files
 *.log

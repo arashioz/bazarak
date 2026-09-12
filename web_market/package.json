@@ -11,7 +11,8 @@
     "smee": "node scripts/smee.js",
     "migrate:mongodb": "node scripts/migrate-sources-to-mongo.mjs",
     "seed:persons": "node scripts/import-persons-customers.mjs",
-    "seed:mobile-services": "node scripts/seed-mobile-services.mjs"
+    "seed:mobile-services": "node scripts/seed-mobile-services.mjs",
+    "geocode:mobile-services": "node scripts/geocode-mobile-service-customers.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

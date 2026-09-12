@@ -535,12 +535,15 @@ export default function MobileServicesApp() {
             </p>
           )}
           {rows.length < allRows.length && (
-            <div
-              ref={sentinel}
-              className="flex justify-center py-6 text-sm text-oxblood/60"
-            >
-              <LoaderCircle className="ml-2 animate-spin" size={17} />
-              در حال بارگذاری سوابق بیشتر…
+            <div ref={sentinel} className="flex flex-col items-center gap-3 py-6 text-sm text-oxblood/60">
+              <button
+                type="button"
+                onClick={() => setLimit((current) => Math.min(current + pageSize, allRows.length))}
+                className="rounded-lg border border-oxblood/20 bg-white px-4 py-2 font-bold text-oxblood transition hover:bg-blush"
+              >
+                بارگذاری سوابق بیشتر
+              </button>
+              <span className="inline-flex items-center"><LoaderCircle className="ml-2 animate-spin" size={17} />با اسکرول هم خودکار ادامه پیدا می‌کند</span>
             </div>
           )}
         </section>

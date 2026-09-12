@@ -1,3 +1,66 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { signToken } from '../../../lib/auth-map-utils';
+
+export async function POST(req: NextRequest) {
+  try {
+    const { username, password, role } = await req.json();
+
+    const isValid = 
+      (role === 'admin' && username === 'admin' && password === 'admin123') ||
+      (role === 'driver' && username === 'driver' && password === 'driver123');
+
+    if (!isValid) {
+      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
+
+    const token = await signToken({ username, role }, role);
+    const response = NextResponse.json({ success: true, role });
+
+    const cookieName = role === 'admin' ? 'bazarek_map_admin_token' : 'bazarek_map_driver_token';
+    response.cookies.set(cookieName, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+    });
+
+    return response;
+  } catch (error) {
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
+import { NextRequest, NextResponse } from 'next/server';
+import { signToken } from '../../../lib/auth-map-utils';
+
+export async function POST(req: NextRequest) {
+  try {
+    const { username, password, role } = await req.json();
+
+    // Hardcoded for testing as per request
+    const isValid = 
+      (role === 'admin' && username === 'admin' && password === 'admin123') ||
+      (role === 'driver' && username === 'driver' && password === 'driver123');
+
+    if (!isValid) {
+      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
+
+    const token = await signToken({ username, role }, role);
+    const response = NextResponse.json({ success: true, role });
+
+    const cookieName = role === 'admin' ? 'bazarek_map_admin_token' : 'bazarek_map_driver_token';
+    response.cookies.set(cookieName, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+    });
+
+    return response;
+  } catch (error) {
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
  import { NextRequest, NextResponse } from "next/server";
  import { createMapToken } from "@/app/lib/auth-map-utils";
  import { MAP_ADMIN_COOKIE, MAP_DRIVER_COOKIE } from "@/app/lib/auth-map-utils";
