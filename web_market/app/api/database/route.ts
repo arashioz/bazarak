@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mongoDatabase } from "@/lib/mongodb";
+import { ADMIN_COOKIE, isValidAdminToken } from "@/app/lib/auth";
 
 export const runtime = "nodejs";
 
-const writableSections = new Set(["products", "settings", "catalog", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "productDelete", "mobileServices"]);
+const writableSections = new Set(["products", "settings", "catalog", "productCategory", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "productDelete", "mobileServices"]);
 
 type Database = Record<string, unknown>;
 type DatabaseDocument = Database & { _id: string };
@@ -18,8 +19,13 @@ const readDatabase = async () => {
   throw new Error("MongoDB data has not been initialized");
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // The catalog has its own public, read-only endpoint. All database data is
+    // reserved for an authenticated manager session.
+    if (!isValidAdminToken(request.cookies.get(ADMIN_COOKIE)?.value)) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
     return NextResponse.json(await readDatabase());
   } catch {
     return NextResponse.json({ error: "database unavailable" }, { status: 500 });
@@ -28,6 +34,9 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
+    if (!isValidAdminToken(request.cookies.get(ADMIN_COOKIE)?.value)) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
     const { section, data } = await request.json();
     if (typeof section !== "string" || !writableSections.has(section)) {
       return NextResponse.json({ error: "invalid database section" }, { status: 400 });
@@ -69,6 +78,25 @@ export async function PUT(request: NextRequest) {
       const result = await collection.updateOne(
         { _id: "primary" },
         { $pull: { products: { id: product.id } }, $set: { updatedAt: new Date() } } as never,
+      );
+      if (!result.matchedCount) return NextResponse.json({ error: "product not found" }, { status: 404 });
+      return NextResponse.json(await readDatabase());
+    }
+    // Category membership is changed independently of the full catalog. This
+    // makes removing a checked category explicit instead of having it restored
+    // by the catalog merge that protects data from stale browser tabs.
+    if (section === "productCategory") {
+      const change = data as { productId?: number; categoryId?: string; assigned?: boolean };
+      if (!Number.isFinite(change?.productId) || !String(change.categoryId || "").trim() || typeof change.assigned !== "boolean") {
+        return NextResponse.json({ error: "invalid product category change" }, { status: 400 });
+      }
+      const categoryId = String(change.categoryId).trim();
+      const result = await collection.updateOne(
+        { _id: "primary", "products.id": change.productId },
+        {
+          [change.assigned ? "$addToSet" : "$pull"]: { "products.$.categoryIds": categoryId },
+          $set: { "products.$.updated": new Date().toISOString(), updatedAt: new Date() },
+        } as never,
       );
       if (!result.matchedCount) return NextResponse.json({ error: "product not found" }, { status: 404 });
       return NextResponse.json(await readDatabase());

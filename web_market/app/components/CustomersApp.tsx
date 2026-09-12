@@ -16,6 +16,7 @@ import * as XLSX from "xlsx";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { confirmDelete } from "@/app/lib/confirm-delete";
+import MobileBottomNav from "./MobileBottomNav";
 
 type FollowUp = { date: string; note: string };
 type Customer = {
@@ -251,7 +252,7 @@ export default function CustomersApp() {
   };
   if (loading) return <main className="min-h-screen bg-blush p-5 text-oxblood sm:p-8"><section className="mx-auto max-w-6xl"><div className="rounded-2xl bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><div className="h-10 w-10 animate-spin rounded-full border-4 border-oxblood/15 border-t-oxblood"/><div><b className="block text-lg font-black">در حال دریافت مشتریان</b><span className="text-sm text-oxblood-dark/55">اطلاعات از MongoDB خوانده می‌شود…</span></div></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{Array.from({ length: 10 }).map((_, index) => <article key={index} className="animate-pulse rounded-lg border border-oxblood/10 bg-white p-4 shadow-sm"><div className="h-5 w-3/5 rounded bg-oxblood/10"/><div className="mt-3 h-3 w-2/5 rounded bg-oxblood/10"/><div className="mt-5 h-4 w-4/5 rounded bg-oxblood/10"/><div className="mt-4 h-9 w-2/3 rounded-lg bg-oxblood/10"/></article>)}</div></section></main>;
   return (
-    <main className="min-h-screen bg-blush p-4 text-oxblood-dark sm:p-6">
+    <main className="min-h-screen bg-blush p-4 pb-20 text-oxblood-dark sm:p-6">
       <section className="mx-auto max-w-6xl">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -305,6 +306,7 @@ export default function CustomersApp() {
             >
               پنل مدیریت
             </Link>
+            <button type="button" onClick={() => { void fetch("/api/auth/logout", { method: "POST" }).finally(() => window.location.assign("/modir/login")); }} className="rounded-lg border border-oxblood/20 bg-white px-4 py-2 text-sm font-bold text-oxblood">خروج</button>
           </div>
         </header>
         <div className="mt-5">
@@ -448,6 +450,7 @@ export default function CustomersApp() {
           onUpdate={saveCustomer}
         />
       )}
+      <MobileBottomNav />
     </main>
   );
 }

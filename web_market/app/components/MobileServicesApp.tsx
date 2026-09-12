@@ -15,6 +15,9 @@ import {
   findMobileServiceCustomers,
 } from "@/lib/mobile-service-customers";
 import { confirmDelete } from "@/app/lib/confirm-delete";
+import MobileBottomNav from "./MobileBottomNav";
+
+type FollowUp = { date: string; note: string };
 
 type Customer = {
   id: number;
@@ -25,6 +28,7 @@ type Customer = {
   group: string;
   description: string;
   active: boolean;
+  followUps?: FollowUp[];
 };
 type Record = {
   id: number;
@@ -72,15 +76,21 @@ export default function MobileServicesApp() {
     [q, setQ] = useState(""),
     [limit, setLimit] = useState(pageSize),
     [selected, setSelected] = useState<Record | null>(null),
-    [unpaidOpen, setUnpaidOpen] = useState(false);
+    [unpaidOpen, setUnpaidOpen] = useState(false),
+    [loading, setLoading] = useState(true),
+    [progress, setProgress] = useState(8);
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    const timer = window.setInterval(() => setProgress((value) => Math.min(value + 9, 88)), 180);
     fetch("/api/database", { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((db) => {
         setData(db.mobileServices || empty);
         setCustomers(db.customers || []);
-      });
+      })
+      .catch(() => undefined)
+      .finally(() => { window.clearInterval(timer); setProgress(100); window.setTimeout(() => setLoading(false), 180); });
+    return () => window.clearInterval(timer);
   }, []);
   const save = async (next: Data) => {
     setData(next);
@@ -271,8 +281,14 @@ export default function MobileServicesApp() {
       address: customer.address,
     });
   };
+  const addFollowUp = async (customerId: number, followUp: FollowUp) => {
+    const response = await fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "customerFollowUp", data: { customerId, ...followUp } }) });
+    if (!response.ok) throw new Error("follow-up save failed");
+    setCustomers((list) => list.map((customer) => customer.id === customerId ? { ...customer, followUps: [followUp, ...(customer.followUps || [])] } : customer));
+  };
+  if (loading) return <MobileServicesSkeleton progress={progress} />;
   return (
-    <main className="min-h-screen bg-blush p-4 text-oxblood-dark sm:p-6">
+    <main className="min-h-screen bg-blush p-4 pb-20 text-oxblood-dark sm:p-6">
       <section className="mx-auto max-w-6xl">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -296,6 +312,7 @@ export default function MobileServicesApp() {
             >
               پنل مدیریت
             </Link>
+            <button type="button" onClick={() => { void fetch("/api/auth/logout", { method: "POST" }).finally(() => window.location.assign("/modir/login")); }} className="rounded-lg border border-oxblood/15 bg-white px-3 py-2 text-sm font-bold">خروج</button>
           </nav>
         </header>
         {unpaid.length > 0 && (
@@ -528,10 +545,12 @@ export default function MobileServicesApp() {
           <CustomerHistory
             record={selected}
             records={data.records}
+            customer={customers.find((customer) => customer.id === selected.customerId) || { id: selected.customerId || Date.now(), name: selected.customerName, mobile: selected.phone, phone: "", address: selected.address, group: "خدمات سیار", description: "", active: true, followUps: [] }}
             onClose={() => setSelected(null)}
             onSetPaymentStatus={setPaymentStatus}
             onRemove={remove}
             onUpdate={updateCustomer}
+            onAddFollowUp={addFollowUp}
           />
         )}{" "}
         {unpaidOpen && (
@@ -545,19 +564,23 @@ export default function MobileServicesApp() {
           />
         )}
       </section>
+      <MobileBottomNav />
     </main>
   );
 }
 function CustomerHistory({
   record,
   records,
+  customer,
   onClose,
   onSetPaymentStatus,
   onRemove,
   onUpdate,
+  onAddFollowUp,
 }: {
   record: Record;
   records: Record[];
+  customer: Customer;
   onClose: () => void;
   onSetPaymentStatus: (id: number, paymentStatus: Record["paymentStatus"]) => Promise<void>;
   onRemove: (id: number) => Promise<void>;
@@ -565,11 +588,17 @@ function CustomerHistory({
     record: Record,
     values: { name: string; phone: string; address: string },
   ) => Promise<void>;
+  onAddFollowUp: (customerId: number, followUp: FollowUp) => Promise<void>;
 }) {
   const [name, setName] = useState(record.customerName),
     [phone, setPhone] = useState(record.phone),
     [address, setAddress] = useState(record.address),
-    [saving, setSaving] = useState(false);
+    [saving, setSaving] = useState(false),
+    [section, setSection] = useState<"services" | "followUps">("services"),
+    [followUpDate, setFollowUpDate] = useState(jalali()),
+    [followUpNote, setFollowUpNote] = useState(""),
+    [savingFollowUp, setSavingFollowUp] = useState(false);
+  const followUps = [...(customer.followUps || [])].sort((a, b) => b.date.localeCompare(a.date, "fa"));
   const history = records
     .filter(
       (x) =>
@@ -586,6 +615,12 @@ function CustomerHistory({
     } finally {
       setSaving(false);
     }
+  };
+  const saveFollowUp = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!followUpNote.trim()) return;
+    setSavingFollowUp(true);
+    try { await onAddFollowUp(customer.id, { date: followUpDate, note: followUpNote.trim() }); setFollowUpDate(jalali()); setFollowUpNote(""); } finally { setSavingFollowUp(false); }
   };
   return (
     <div className="fixed inset-0 z-40 grid place-items-end bg-oxblood-dark/45 p-4 sm:place-items-center">
@@ -639,8 +674,8 @@ function CustomerHistory({
             {saving ? "در حال ذخیره..." : "ذخیره اطلاعات"}
           </button>
         </form>
-        <h3 className="mt-6 font-black">تاریخچه خدمات</h3>
-        <div className="mt-3 space-y-2">
+        <div className="mt-6 grid grid-cols-2 rounded-xl bg-blush p-1 text-sm font-bold"><button type="button" onClick={() => setSection("services")} className={`rounded-lg py-2 ${section === "services" ? "bg-white text-oxblood shadow-sm" : "text-oxblood/55"}`}>سوابق خدمات</button><button type="button" onClick={() => setSection("followUps")} className={`rounded-lg py-2 ${section === "followUps" ? "bg-white text-oxblood shadow-sm" : "text-oxblood/55"}`}>پیگیری مشتری ({followUps.length.toLocaleString("fa-IR")})</button></div>
+        {section === "services" ? <><h3 className="mt-5 font-black">تاریخچه خدمات</h3><div className="mt-3 space-y-2">
           {history.map((x) => (
             <article key={x.id} className="rounded-xl bg-blush p-3">
               <div className="flex justify-between gap-3">
@@ -668,10 +703,13 @@ function CustomerHistory({
               </div>
             </article>
           ))}
-        </div>
+        </div></> : <section className="mt-5"><h3 className="font-black">سابقهٔ پیگیری</h3><form onSubmit={saveFollowUp} className="mt-3 rounded-xl border border-oxblood/10 bg-blush p-3"><label className="text-xs font-bold">تاریخ<input value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} className="mt-1 w-full rounded-lg border p-2 font-normal" /></label><label className="mt-3 block text-xs font-bold">یادداشت پیگیری<textarea required value={followUpNote} onChange={(event) => setFollowUpNote(event.target.value)} rows={3} className="mt-1 w-full rounded-lg border p-2 font-normal" /></label><button disabled={savingFollowUp} className="mt-3 rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white disabled:opacity-50">{savingFollowUp ? "در حال ذخیره..." : "افزودن سابقه پیگیری"}</button></form>{followUps.length > 0 ? <div className="mt-3 space-y-3 border-r-2 border-oxblood/15 pr-4">{followUps.map((followUp, index) => <article key={`${followUp.date}-${index}`} className="relative rounded-xl border border-oxblood/10 bg-white p-3 shadow-sm before:absolute before:-right-[22px] before:top-4 before:h-3 before:w-3 before:rounded-full before:bg-oxblood"><b className="text-sm text-oxblood">{displayJalaliDate(followUp.date)}</b><p className="mt-2 whitespace-pre-wrap text-sm text-oxblood-dark/75">{followUp.note}</p></article>)}</div> : <p className="mt-4 text-sm text-oxblood/55">هنوز پیگیری ثبت نشده است.</p>}</section>}
       </section>
     </div>
   );
+}
+function MobileServicesSkeleton({ progress }: { progress: number }) {
+  return <main className="min-h-screen bg-blush p-4 sm:p-6"><section className="mx-auto max-w-6xl"><div className="h-1 overflow-hidden rounded-full bg-oxblood/10"><div className="h-full bg-oxblood transition-all duration-200" style={{ width: `${progress}%` }} /></div><p className="mt-3 text-sm font-bold text-oxblood">در حال دریافت اطلاعات خدمات سیار…</p><div className="mt-5 animate-pulse space-y-5"><div className="h-28 rounded-2xl bg-white"/><div className="h-72 rounded-2xl bg-white"/><div className="h-64 rounded-2xl bg-white"/></div></section></main>;
 }
 function UnpaidDialog({
   records,

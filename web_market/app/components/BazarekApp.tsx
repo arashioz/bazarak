@@ -5,6 +5,7 @@ import {
   BookOpen,
   CalendarDays,
   Check,
+  Copy,
   Database,
   ExternalLink,
   ListChecks,
@@ -26,6 +27,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import CustomerDrawer from "./CustomerDrawer";
 import { confirmDelete } from "@/app/lib/confirm-delete";
+import MobileBottomNav from "./MobileBottomNav";
 
 type Invoice = { price: number; registeredAt: string };
 type PriceHistory = { previousPrice: number; price: number; changedAt: string };
@@ -41,6 +43,7 @@ type Product = {
   featured: boolean;
   updated: string;
   catalogUrl: string;
+  imageUrl: string;
   description: string;
   invoices: Invoice[];
   priceHistory: PriceHistory[];
@@ -137,6 +140,7 @@ const normalizeProducts = (raw: unknown): Product[] => {
       featured: Boolean(product.featured),
       updated,
       catalogUrl: String(product.catalogUrl || ""),
+      imageUrl: String(product.imageUrl || ""),
       description: String(product.description || ""),
       invoices,
       priceHistory: Array.isArray(product.priceHistory) ? product.priceHistory : [],
@@ -157,6 +161,7 @@ const mergeProducts = (base: Product[], saved: Product[]) => {
 };
 
 type ServerDatabase = { products?: unknown; settings?: AppSettings; tasks?: Task[] };
+type CatalogDatabase = ServerDatabase & { categoryFound?: boolean };
 
 const recoverCategories = (settings: AppSettings, products: Product[]): AppSettings => {
   const known = new Set(settings.categories.map((category) => category.id));
@@ -170,8 +175,15 @@ const readMongoDatabase = async () => {
   return response.json() as Promise<ServerDatabase>;
 };
 
+const readCatalog = async (categoryId: string | null) => {
+  const query = categoryId ? `?category=${encodeURIComponent(categoryId)}` : "";
+  const response = await fetch(`/api/catalog${query}`, { cache: "no-store" });
+  if (!response.ok) throw new Error("catalog unavailable");
+  return response.json() as Promise<CatalogDatabase>;
+};
+
 let databaseWriteQueue = Promise.resolve();
-const saveMongoSection = (section: "products" | "settings" | "catalog" | "tasks", data: unknown) => {
+const saveMongoSection = (section: "products" | "settings" | "catalog" | "productCategory" | "tasks", data: unknown) => {
   databaseWriteQueue = databaseWriteQueue.catch(() => undefined).then(async () => {
     const response = await fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section, data }) });
     if (!response.ok) throw new Error("database update failed");
@@ -207,6 +219,8 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     setProducts(next);
     return saveCatalog(next, settingsRef.current).then(() => true).catch(() => { setError("ذخیره محصولات و دسته‌بندی‌ها در MongoDB ناموفق بود؛ اتصال سرور را بررسی کنید."); return false; });
   };
+  const saveProductCategory = (productId: number, categoryId: string, assigned: boolean) =>
+    saveMongoSection("productCategory", { productId, categoryId, assigned });
   const saveSettings = (next: AppSettings) => { setSettings(next); void saveCatalog(productsRef.current, next).catch(() => setError("ذخیره دسته‌بندی‌ها در MongoDB ناموفق بود.")); };
   const saveTasks = (next: Task[]) => { setTasks(next); void saveMongoSection("tasks", next).catch(() => setError("ذخیره تسک در MongoDB ناموفق بود.")); };
   const showNotice = (message: string) => {
@@ -217,6 +231,11 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   useEffect(() => {
     let cancelled = false;
     const boot = async () => {
+      // The login screen must stay available before a manager token exists.
+      if (initialView === "login") {
+        setDatabaseLoaded(true);
+        return;
+      }
       const shouldShowIntro = localStorage.getItem("bazarek-intro-seen") !== "1";
       if (shouldShowIntro) {
         setShowIntro(true);
@@ -224,7 +243,9 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         window.setTimeout(() => setShowIntro(false), 1800);
       }
 
-      const database = await readMongoDatabase();
+      const database = initialView === "catalog"
+        ? await readCatalog(searchParams.get("category"))
+        : await readMongoDatabase();
       const nextProducts = normalizeProducts(database.products);
 
       if (!cancelled) {
@@ -233,7 +254,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         settingsRef.current = nextSettings;
         setProducts(nextProducts);
         setSettings(nextSettings);
-        if (nextSettings !== database.settings) void saveCatalog(nextProducts, nextSettings);
+        if (initialView !== "catalog" && nextSettings !== database.settings) void saveCatalog(nextProducts, nextSettings);
         setTasks(database.tasks || []);
         setDatabaseLoaded(true);
         if (initialView === "landing" && localStorage.getItem("bazarek-role") === "user") {
@@ -254,7 +275,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     return () => {
       cancelled = true;
     };
-  }, [initialView, router]);
+  }, [initialView, router, searchParams]);
 
   const navigate = (nextView: View, path: string) => {
     setError("");
@@ -263,12 +284,15 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     setView(nextView);
     router.push(path);
   };
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    navigate("login", "/modir/login");
+  };
 
   const filtered = useMemo(() => products.filter((product) => product.name.includes(q.trim())), [products, q]);
   const visibleProducts = useMemo(() => [...filtered.filter((product) => !categoryFilter || product.categoryIds.includes(categoryFilter))].sort((a, b) => sortMode === "price-asc" ? a.price - b.price : sortMode === "price-desc" ? b.price - a.price : sortMode === "stock-desc" ? b.stock - a.stock : a.name.localeCompare(b.name, "fa")), [filtered, categoryFilter, sortMode]);
   const catalogCategoryId = categoryId(searchParams.get("category") || (pathname.startsWith("/catalog/") ? pathname.slice("/catalog/".length) : "")) || null;
   const catalogCategory = settings.categories.find((category) => categoryId(category.id) === catalogCategoryId);
-  const catalogCategoryIds = new Set(settings.categories.filter((category) => catalogCategory && category.name.trim() === catalogCategory.name.trim()).map((category) => categoryId(category.id)));
 
   const add = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -293,6 +317,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         featured: form.get("featured") === "on",
         updated: createdAt,
         catalogUrl: String(form.get("catalogUrl") || "").trim(),
+        imageUrl: String(form.get("imageUrl") || "").trim(),
         description: String(form.get("description") || "").trim(),
         invoices: [{ price, registeredAt: createdAt }],
         priceHistory: [],
@@ -376,7 +401,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         const hasPriceChange = Boolean(previous && previous.price !== price);
         imported.push({ ...(previous || {}), id: previous?.id ?? Date.now() + index, name, price, updated: hasPriceChange || !previous ? registeredAt : previous.updated,
           invoices: !previous || hasPriceChange ? [{ price, registeredAt }, ...(previous?.invoices || [])] : previous.invoices, priceHistory: hasPriceChange ? [{ previousPrice: previous!.price, price, changedAt: registeredAt }, ...previous!.priceHistory] : previous?.priceHistory || [], percentages: previous?.percentages || [percent, percent, percent],
-          unit: previous?.unit || "کیلوگرم", stock: previous?.stock || 0, active: previous?.active ?? true, rounding: previous?.rounding || [1000, 1000, 1000, 1000], roundingEnabled: previous?.roundingEnabled || [true, true, true, true], fixedPrices: previous?.fixedPrices || [], categoryIds: previous?.categoryIds || [], featured: previous?.featured ?? false, catalogUrl: previous?.catalogUrl || "", description: previous?.description || "" });
+          unit: previous?.unit || "کیلوگرم", stock: previous?.stock || 0, active: previous?.active ?? true, rounding: previous?.rounding || [1000, 1000, 1000, 1000], roundingEnabled: previous?.roundingEnabled || [true, true, true, true], fixedPrices: previous?.fixedPrices || [], categoryIds: previous?.categoryIds || [], featured: previous?.featured ?? false, catalogUrl: previous?.catalogUrl || "", imageUrl: previous?.imageUrl || "", description: previous?.description || "" });
       });
       if (!imported.length) throw new Error("empty");
       const byName = new Map(products.map((product) => [product.name, product]));
@@ -440,13 +465,13 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
   const isAdmin = view === "admin";
   return (
-    <main className="min-h-screen bg-blush text-oxblood-dark">
-      {view !== "catalog" && <Header q={q} setQ={setQ} navigate={navigate} admin={isAdmin} />}
+    <main className={`min-h-screen bg-blush text-oxblood-dark ${isAdmin ? "pb-20 sm:pb-0" : ""}`}>
+      {view !== "catalog" && <Header q={q} setQ={setQ} navigate={navigate} admin={isAdmin} onLogout={logout} />}
       {isAdmin && <CustomerDrawer />}
       {notice && <div role="status" className="fixed top-5 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-xl">{notice}</div>}
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         {view === "catalog" ? (
-          <Catalog products={products.filter((product) => product.active && (!catalogCategoryId || product.categoryIds.some((id) => catalogCategoryIds.has(categoryId(id)) || categoryId(id) === catalogCategoryId || categoryId(id) === catalogCategory?.name)))} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} onSelect={setSelected} />
+          <Catalog products={products} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} onSelect={setSelected} />
         ) : isAdmin ? (
           <Admin
             products={visibleProducts}
@@ -497,12 +522,18 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             saveProducts(products.map((product) => product.id === selected.id ? nextSelected : product));
             setSelected(nextSelected);
           }}
-          onCategoryChange={(categoryId, checked) => {
+          onCategoryChange={async (categoryId, checked) => {
             const categoryIds = checked ? Array.from(new Set([...selected.categoryIds, categoryId])) : selected.categoryIds.filter((id) => id !== categoryId);
             const nextSelected = { ...selected, categoryIds, updated: now() };
-            void saveProducts(products.map((product) => product.id === selected.id ? nextSelected : product));
-            setSelected(nextSelected);
-            showNotice(checked ? "محصول در دسته ثبت شد." : "محصول از دسته خارج شد.");
+            try {
+              await saveProductCategory(selected.id, categoryId, checked);
+              setProducts(products.map((product) => product.id === selected.id ? nextSelected : product));
+              productsRef.current = products.map((product) => product.id === selected.id ? nextSelected : product);
+              setSelected(nextSelected);
+              showNotice(checked ? "محصول در دسته ثبت شد." : "محصول از دسته خارج شد.");
+            } catch {
+              setError("تغییر دسته‌بندی محصول در MongoDB ناموفق بود؛ اتصال سرور را بررسی کنید.");
+            }
           }}
           onUpdatePricing={async (event) => {
             event.preventDefault();
@@ -513,6 +544,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
               name: String(form.get("name") || selected.name).trim(),
               unit: String(form.get("unit") === "__custom__" ? form.get("unitManual") : form.get("unit") || selected.unit).trim(),
               description: String(form.get("description") || "").trim(),
+              imageUrl: String(form.get("imageUrl") || "").trim(),
               levels,
               percentages: settings.columnLabels.map((_, index) => Number(levels[index]?.percent ?? selected.percentages[index] ?? 0)),
               rounding: selected.rounding,
@@ -536,6 +568,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
           }}
         />
       )}
+      {isAdmin && <MobileBottomNav />}
     </main>
   );
 }
@@ -598,9 +631,14 @@ function Login({
   return (
     <main className="grid min-h-screen place-items-center bg-blush p-4 text-oxblood-dark">
       <form
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          if (new FormData(event.currentTarget).get("password") === "Admin1405!") {
+          const response = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ password: new FormData(event.currentTarget).get("password") }),
+          });
+          if (response.ok) {
             navigate("admin", "/modir/panel");
           } else {
             setError("رمز مدیر درست نیست.");
@@ -626,11 +664,13 @@ function Header({
   setQ,
   navigate,
   admin,
+  onLogout,
 }: {
   q: string;
   setQ: (value: string) => void;
   navigate: (nextView: View, path: string) => void;
   admin: boolean;
+  onLogout: () => Promise<void>;
 }) {
   return (
     <header className="sticky top-0 z-10 border-b border-oxblood/10 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-6">
@@ -651,7 +691,7 @@ function Header({
         <div className="flex gap-3 text-sm font-bold text-oxblood">
           {admin && <><Link href="/customers" className="rounded-lg px-2 py-1 hover:bg-blush">مشتریان</Link><Link href="/mobile-services" className="rounded-lg px-2 py-1 hover:bg-blush">خدمات سیار</Link></>}
           <button onClick={() => navigate("catalog", "/catalog")}>کاتالوگ</button>
-          <button onClick={() => navigate("login", "/modir/login")}>ورود مدیر</button>
+          {admin ? <button onClick={() => void onLogout()}>خروج مدیر</button> : <button onClick={() => navigate("login", "/modir/login")}>ورود مدیر</button>}
           <button onClick={() => navigate("landing", "/")}>تغییر نقش</button>
         </div>
       </div>
@@ -903,7 +943,14 @@ function CatalogSettingsForm({ contact, categories, onSave }: { contact: Catalog
   const [mobile, setMobile] = useState(contact.mobile || "");
   const [phone, setPhone] = useState(contact.phone || "");
   const [address, setAddress] = useState(contact.address || "");
-  return <section className="mt-4 rounded-lg border border-oxblood/10 p-4"><h3 className="font-black">تنظیمات کاتالوگ</h3><p className="mt-1 text-xs text-oxblood-dark/55">این اطلاعات در کاتالوگ کلی و تمام لینک‌های دسته‌بندی نمایش داده می‌شود.</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-xs font-bold">شماره تماس همراه<input value={mobile} onChange={(event) => setMobile(event.target.value)} inputMode="tel" className="mt-1 w-full rounded border border-oxblood/15 p-2 font-normal"/></label><label className="text-xs font-bold">شماره ثابت<input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" className="mt-1 w-full rounded border border-oxblood/15 p-2 font-normal"/></label><label className="text-xs font-bold sm:col-span-2">آدرس<textarea value={address} onChange={(event) => setAddress(event.target.value)} rows={2} className="mt-1 w-full rounded border border-oxblood/15 p-2 font-normal"/></label></div><button type="button" onClick={() => onSave({ mobile: mobile.trim(), phone: phone.trim(), address: address.trim() })} className="mt-3 rounded bg-oxblood px-3 py-2 text-sm font-bold text-white">ذخیره تنظیمات کاتالوگ</button><div className="mt-5 border-t border-oxblood/10 pt-4"><b className="text-sm">لینک‌های قابل ارسال</b><div className="mt-2 flex flex-wrap gap-2"><Link href="/catalog" target="_blank" className="rounded border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">کاتالوگ کلی</Link>{categories.map((category) => <Link key={category.id} href={`/catalog/${encodeURIComponent(category.id)}`} target="_blank" className="rounded border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">کاتالوگ {category.name}</Link>)}</div></div></section>;
+  const [copied, setCopied] = useState("");
+  const catalogPath = (id?: string) => id ? `/catalog?category=${encodeURIComponent(id)}` : "/catalog";
+  const copyLink = async (id?: string) => {
+    await navigator.clipboard.writeText(`${window.location.origin}${catalogPath(id)}`);
+    setCopied(id || "all");
+    window.setTimeout(() => setCopied(""), 1800);
+  };
+  return <section className="mt-4 rounded-lg border border-oxblood/10 p-4"><h3 className="font-black">تنظیمات کاتالوگ</h3><p className="mt-1 text-xs text-oxblood-dark/55">این اطلاعات در کاتالوگ کلی و تمام لینک‌های دسته‌بندی نمایش داده می‌شود.</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-xs font-bold">شماره تماس همراه<input value={mobile} onChange={(event) => setMobile(event.target.value)} inputMode="tel" className="mt-1 w-full rounded border border-oxblood/15 p-2 font-normal"/></label><label className="text-xs font-bold">شماره ثابت<input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" className="mt-1 w-full rounded border border-oxblood/15 p-2 font-normal"/></label><label className="text-xs font-bold sm:col-span-2">آدرس<textarea value={address} onChange={(event) => setAddress(event.target.value)} rows={2} className="mt-1 w-full rounded border border-oxblood/15 p-2 font-normal"/></label></div><button type="button" onClick={() => onSave({ mobile: mobile.trim(), phone: phone.trim(), address: address.trim() })} className="mt-3 rounded bg-oxblood px-3 py-2 text-sm font-bold text-white">ذخیره تنظیمات کاتالوگ</button><div className="mt-5 border-t border-oxblood/10 pt-4"><b className="text-sm">لینک‌های قابل ارسال</b><div className="mt-2 space-y-2"><div className="flex flex-wrap gap-2"><Link href={catalogPath()} target="_blank" className="rounded border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">کاتالوگ کلی</Link><button type="button" onClick={() => void copyLink()} className="inline-flex items-center gap-1 rounded border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood"><Copy size={14}/>{copied === "all" ? "کپی شد" : "کپی لینک"}</button></div>{categories.map((category) => <div key={category.id} className="flex flex-wrap gap-2"><Link href={catalogPath(category.id)} target="_blank" className="rounded border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">کاتالوگ {category.name}</Link><button type="button" onClick={() => void copyLink(category.id)} className="inline-flex items-center gap-1 rounded border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood"><Copy size={14}/>{copied === category.id ? "کپی شد" : "کپی لینک"}</button></div>)}</div></div></section>;
 }
 
 function DisplayModeForm({ mode, onChange }: { mode: "sections" | "phonebook"; onChange: (mode: "sections" | "phonebook") => void }) {
@@ -1039,6 +1086,10 @@ function AddProductSheet({
             <input name="catalogUrl" type="url" className="mt-2 w-full rounded-lg border border-oxblood/15 p-2" />
           </label>
           <label className="block text-sm font-bold sm:col-span-2">
+            لینک تصویر محصول
+            <input name="imageUrl" type="url" placeholder="https://..." className="mt-2 w-full rounded-lg border border-oxblood/15 p-2" />
+          </label>
+          <label className="block text-sm font-bold sm:col-span-2">
             توضیحات محصول
             <textarea name="description" rows={3} className="mt-2 w-full rounded-lg border border-oxblood/15 p-2" />
           </label>
@@ -1098,7 +1149,7 @@ function Catalog({
           <p className="mt-1 text-sm text-oxblood-dark/55">نسخه آسیاب صداقت، {products.length} محصول</p>
         </div>
       </div>
-      {!selectedCategoryId && !!categories.length && <div className="mt-4 flex flex-wrap gap-2">{categories.map((category) => <Link key={category.id} href={`/catalog/${encodeURIComponent(category.id)}`} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm font-bold text-oxblood">کاتالوگ {category.name}</Link>)}</div>}
+      {!selectedCategoryId && !!categories.length && <div className="mt-4 flex flex-wrap gap-2">{categories.map((category) => <Link key={category.id} href={`/catalog?category=${encodeURIComponent(category.id)}`} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm font-bold text-oxblood">کاتالوگ {category.name}</Link>)}</div>}
       {selectedCategory && <p className="mt-3 text-xs text-oxblood-dark/55">این لینک فقط محصولات دسته «{selectedCategory.name}» را نشان می‌دهد و قابل ارسال است.</p>}
       {(contact.mobile || contact.phone || contact.address) && <section className="mt-5 rounded-xl border border-oxblood/10 bg-white p-4 text-sm"><h2 className="font-black text-oxblood">اطلاعات تماس</h2><div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-oxblood-dark/70">{contact.mobile && <a dir="ltr" href={`tel:${phoneDigits(contact.mobile)}`}>همراه: {contact.mobile}</a>}{contact.phone && <a dir="ltr" href={`tel:${phoneDigits(contact.phone)}`}>ثابت: {contact.phone}</a>}{contact.address && <span>آدرس: {contact.address}</span>}</div></section>}
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1106,15 +1157,17 @@ function Catalog({
           <button
             key={product.id}
             onClick={() => onSelect(product)}
-            className="rounded-lg border border-oxblood/10 bg-white p-4 text-right shadow-sm transition hover:border-oxblood/45"
+            className="flex gap-3 rounded-lg border border-oxblood/10 bg-white p-4 text-right shadow-sm transition hover:border-oxblood/45"
           >
-            <b className="block text-lg font-black">{product.name}</b>
-            {product.description && <p className="mt-1 line-clamp-2 text-xs font-medium leading-5 text-oxblood-dark">{product.description}</p>}
-            <p className="mt-3 text-xs font-bold text-oxblood">آخرین خرید: {money(latestPurchase(product))}</p>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-              {(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) }))).map((level) => (
-                <span key={level.id} className="rounded-lg bg-blush p-2"><span className="block text-oxblood-dark/45">{level.label}</span><b className="mt-1 block text-oxblood">{money(levelPrice(product, level))}</b></span>
-              ))}
+            <div className="grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-lg bg-blush text-xs text-oxblood-dark/45">{product.imageUrl ? <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" /> : <span>تصویر محصول</span>}</div>
+            <div className="min-w-0 flex-1"><b className="block text-lg font-black">{product.name}</b>
+              {product.description && <p className="mt-1 line-clamp-2 text-xs font-medium leading-5 text-oxblood-dark">{product.description}</p>}
+              <p className="mt-3 text-xs font-bold text-oxblood">آخرین خرید: {money(latestPurchase(product))}</p>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+                {(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) }))).map((level) => (
+                  <span key={level.id} className="rounded-lg bg-blush p-2"><span className="block text-oxblood-dark/45">{level.label}</span><b className="mt-1 block text-oxblood">{money(levelPrice(product, level))}</b></span>
+                ))}
+              </div>
             </div>
           </button>
         ))}
@@ -1143,7 +1196,7 @@ function Detail({
   onClose: () => void;
   onInvoice: (value: number, recordInvoice: boolean) => Promise<void>;
   onToggleActive: () => void;
-  onCategoryChange: (categoryId: string, checked: boolean) => void;
+  onCategoryChange: (categoryId: string, checked: boolean) => Promise<void>;
   onUpdatePricing: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
@@ -1221,6 +1274,7 @@ function Detail({
               <label className="mt-3 block text-xs">نام محصول<input required name="name" defaultValue={product.name} className="mt-1 w-full rounded border border-oxblood/15 bg-white p-2 font-bold" /></label>
             <fieldset className="mt-3"><legend className="text-xs">واحد اندازه‌گیری</legend><input type="hidden" name="unit" value={selectedUnit} /><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{units.map((unit) => <button key={unit} type="button" onClick={() => { setSelectedUnit(unit); setCustomUnit(false); }} className={`rounded-lg border px-3 py-2 text-sm font-bold transition ${selectedUnit === unit ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 bg-white text-oxblood"}`}>{unit}</button>)}<button type="button" onClick={() => { setSelectedUnit("__custom__"); setCustomUnit(true); }} className={`rounded-lg border px-3 py-2 text-sm font-bold transition ${customUnit ? "border-oxblood bg-oxblood text-white" : "border-oxblood/15 bg-white text-oxblood"}`}>واحد دستی</button></div>{customUnit && <input name="unitManual" defaultValue={units.includes(product.unit) ? "" : product.unit} placeholder="واحد را بنویسید" className="mt-2 w-full rounded border border-oxblood/15 p-2" />}</fieldset>
               <label className="mt-3 block text-xs">توضیحات محصول<textarea name="description" defaultValue={product.description} rows={3} placeholder="توضیحات، نکات خرید یا مشخصات محصول..." className="mt-1 w-full rounded border border-oxblood/15 bg-white p-2" /></label>
+              <label className="mt-3 block text-xs">لینک تصویر محصول<input name="imageUrl" type="url" defaultValue={product.imageUrl} placeholder="https://..." className="mt-1 w-full rounded border border-oxblood/15 bg-white p-2" /></label>
               <input type="hidden" name="levels" value={JSON.stringify(levels)} />
               <div className="mt-4 rounded-lg border border-oxblood/10 bg-white p-3">
                 <div className="flex items-center justify-between"><h4 className="font-black">سطح‌های اختصاصی این محصول</h4><button type="button" onClick={() => setLevels([...levels, { id: `${Date.now()}-${levels.length}`, label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }])} className="rounded-lg border border-oxblood/20 px-3 py-1.5 text-xs font-bold text-oxblood">+ افزودن سطح</button></div>
@@ -1236,7 +1290,7 @@ function Detail({
                   <button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button>
                 </div>)}</div>
               </div>
-              {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={product.categoryIds.includes(category.id)} onChange={(event) => onCategoryChange(category.id, event.target.checked)} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
+              {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={product.categoryIds.includes(category.id)} onChange={(event) => { void onCategoryChange(category.id, event.target.checked); }} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
               <button type="submit" disabled={savingPricing} className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{savingPricing ? "در حال ذخیره..." : "ثبت اطلاعات"}</button>
               <button type="button" onClick={() => void onDelete()} className="mt-3 mr-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-bold text-red-700">حذف محصول</button>
             </form>
