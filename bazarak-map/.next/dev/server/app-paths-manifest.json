@@ -1,0 +1,5 @@
+{
+  "/api/auth-map/check-auth/route": "app/api/auth-map/check-auth/route.js",
+  "/api/map-data/route": "app/api/map-data/route.js",
+  "/page": "app/page.js"
+}

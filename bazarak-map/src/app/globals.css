@@ -1,0 +1,30 @@
+
+ @tailwind base;
+ @tailwind components;
+ @tailwind utilities;
+ 
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("/fonts/Vazirmatn.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  direction: rtl;
+  color: #2f1014;
+  background: #fff7f7;
+  font-family: "Vazirmatn", Tahoma, Arial, sans-serif;
+}
+
+button, input { font: inherit; }
+button { cursor: pointer; }
+ 
+ .leaflet-container {
+   height: 100%;
+   width: 100%;
+ }

@@ -1,0 +1,9 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/auth-map/check-auth/route": "/api/auth-map/check-auth",
+  "/api/auth-map/login/route": "/api/auth-map/login",
+  "/api/auth-map/logout/route": "/api/auth-map/logout",
+  "/api/map-data/route": "/api/map-data",
+  "/page": "/"
+}
