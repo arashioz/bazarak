@@ -161,6 +161,7 @@ const mergeProducts = (base: Product[], saved: Product[]) => {
 };
 
 type ServerDatabase = { products?: unknown; settings?: AppSettings; tasks?: Task[] };
+type LoadedDatabase = ServerDatabase & { productsPage?: { hasMore: boolean; nextOffset: number } };
 type CatalogDatabase = ServerDatabase & { categoryFound?: boolean };
 
 const recoverCategories = (settings: AppSettings, products: Product[]): AppSettings => {
@@ -170,9 +171,14 @@ const recoverCategories = (settings: AppSettings, products: Product[]): AppSetti
 };
 
 const readMongoDatabase = async () => {
-  const response = await fetch("/api/database", { cache: "no-store" });
+  const metaResponse = await fetch("/api/database?section=meta", { cache: "no-store" });
+  if (!metaResponse.ok) throw new Error("database unavailable");
+  const metadata = await metaResponse.json() as Omit<ServerDatabase, "products">;
+  const response = await fetch("/api/database?section=products&offset=0&limit=200", { cache: "no-store" });
   if (!response.ok) throw new Error("database unavailable");
-  return response.json() as Promise<ServerDatabase>;
+  const page = await response.json() as { items?: unknown[]; hasMore?: boolean };
+  const products = Array.isArray(page.items) ? page.items : [];
+  return { ...metadata, products, productsPage: { hasMore: Boolean(page.hasMore), nextOffset: products.length } } as LoadedDatabase;
 };
 
 const readCatalog = async (categoryId: string | null) => {
@@ -210,6 +216,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const [notice, setNotice] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState("name");
+  const [productsPage, setProductsPage] = useState({ hasMore: false, nextOffset: 0, loading: false });
   const saveCatalog = (nextProducts: Product[], nextSettings: AppSettings) => {
     productsRef.current = nextProducts;
     settingsRef.current = nextSettings;
@@ -223,6 +230,21 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     saveMongoSection("productCategory", { productId, categoryId, assigned });
   const saveSettings = (next: AppSettings) => { setSettings(next); void saveCatalog(productsRef.current, next).catch(() => setError("ذخیره دسته‌بندی‌ها در MongoDB ناموفق بود.")); };
   const saveTasks = (next: Task[]) => { setTasks(next); void saveMongoSection("tasks", next).catch(() => setError("ذخیره تسک در MongoDB ناموفق بود.")); };
+  const loadMoreProducts = async () => {
+    if (!productsPage.hasMore || productsPage.loading) return;
+    setProductsPage((current) => ({ ...current, loading: true }));
+    try {
+      const response = await fetch(`/api/database?section=products&offset=${productsPage.nextOffset}&limit=200`, { cache: "no-store" });
+      if (!response.ok) throw new Error("database unavailable");
+      const page = await response.json() as { items?: unknown[]; hasMore?: boolean };
+      const next = normalizeProducts(page.items);
+      setProducts((current) => { const merged = mergeProducts(current, next); productsRef.current = merged; return merged; });
+      setProductsPage({ hasMore: Boolean(page.hasMore), nextOffset: productsPage.nextOffset + next.length, loading: false });
+    } catch {
+      setProductsPage((current) => ({ ...current, loading: false }));
+      setError("بارگذاری محصولات بیشتر ناموفق بود.");
+    }
+  };
   const showNotice = (message: string) => {
     setNotice(message);
     window.setTimeout(() => setNotice(""), 2500);
@@ -230,9 +252,17 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
   useEffect(() => {
     let cancelled = false;
+    const loadingTimeout = window.setTimeout(() => {
+      if (!cancelled) {
+        setShowIntro(false);
+        setError("دریافت اطلاعات بیشتر از حد انتظار طول کشید. اتصال سرور را بررسی کنید.");
+        setDatabaseLoaded(true);
+      }
+    }, 15000);
     const boot = async () => {
       // The login screen must stay available before a manager token exists.
       if (initialView === "login") {
+        window.clearTimeout(loadingTimeout);
         setDatabaseLoaded(true);
         return;
       }
@@ -240,7 +270,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       if (shouldShowIntro) {
         setShowIntro(true);
         localStorage.setItem("bazarek-intro-seen", "1");
-        window.setTimeout(() => setShowIntro(false), 1800);
+        window.setTimeout(() => setShowIntro(false), 600);
       }
 
       const database = initialView === "catalog"
@@ -253,9 +283,12 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         productsRef.current = nextProducts;
         settingsRef.current = nextSettings;
         setProducts(nextProducts);
+        const pageInfo = (database as LoadedDatabase).productsPage;
+        setProductsPage(pageInfo ? { ...pageInfo, loading: false } : { hasMore: false, nextOffset: nextProducts.length, loading: false });
         setSettings(nextSettings);
         if (initialView !== "catalog" && nextSettings !== database.settings) void saveCatalog(nextProducts, nextSettings);
         setTasks(database.tasks || []);
+        window.clearTimeout(loadingTimeout);
         setDatabaseLoaded(true);
         if (initialView === "landing" && localStorage.getItem("bazarek-role") === "user") {
           setView("user");
@@ -267,6 +300,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
     boot().catch(() => {
       if (!cancelled) {
+        window.clearTimeout(loadingTimeout);
         setError("اتصال به دیتابیس سرور برقرار نشد.");
         setDatabaseLoaded(true);
       }
@@ -274,6 +308,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(loadingTimeout);
     };
   }, [initialView, router, searchParams]);
 
@@ -503,6 +538,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         ) : (
           <ProductSections products={visibleProducts.filter((product) => product.active)} labels={settings.columnLabels} mode={settings.browseMode} onSelect={setSelected} />
         )}
+        {view !== "catalog" && productsPage.hasMore && <div className="mt-6 text-center"><button type="button" disabled={productsPage.loading} onClick={() => void loadMoreProducts()} className="rounded-lg border border-oxblood/20 bg-white px-5 py-3 text-sm font-bold text-oxblood disabled:opacity-50">{productsPage.loading ? "در حال بارگذاری..." : "بارگذاری ۲۰۰ محصول بیشتر"}</button></div>}
       </div>
       {view !== "catalog" && <CategoryFilter categories={settings.categories} products={products} value={categoryFilter} onChange={setCategoryFilter} sortMode={sortMode} onSort={setSortMode} />}
       {showAddProduct && (
@@ -781,7 +817,7 @@ function Grid({
           {product.description && <small className="mt-1 block line-clamp-2 text-[11px] leading-5 text-oxblood-dark/55">{product.description}</small>}
           <span className="mt-1 block text-[11px] text-oxblood-dark/45">{labels[0]}</span>
           {admin && <strong className="mt-4 block text-[11px] font-black text-oxblood">آخرین خرید: {money(latestPurchase(product))}</strong>}
-          <small className="mt-1 block text-[11px] text-oxblood-dark/45">تاریخ آخرین خرید: {product.invoices[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</small>
+          {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تاریخ آخرین خرید: {product.invoices[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</small>}
           {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تغییر قیمت: {date(product.updated)}</small>}
           {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">{product.invoices.length} فاکتور</small>}
           </button>
@@ -1141,31 +1177,39 @@ function Catalog({
   onSelect: (product: Product) => void;
 }) {
   const selectedCategory = categories.find((category) => categoryId(category.id) === selectedCategoryId);
+  const [copiedCategoryId, setCopiedCategoryId] = useState("");
+  const copyCategoryLink = async (id: string) => {
+    await navigator.clipboard.writeText(`${window.location.origin}/catalog?category=${encodeURIComponent(id)}`);
+    setCopiedCategoryId(id);
+    window.setTimeout(() => setCopiedCategoryId(""), 1800);
+  };
   return (
     <section className="catalog-page">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black text-oxblood">{selectedCategory ? `کاتالوگ ${selectedCategory.name}` : "کاتالوگ بازارک"}</h1>
-          <p className="mt-1 text-sm text-oxblood-dark/55">نسخه آسیاب صداقت، {products.length} محصول</p>
+      <div className="catalog-hero">
+        <div className="catalog-hero-mark"><BookOpen size={25}/></div>
+        <div className="min-w-0 flex-1">
+          <span className="catalog-eyebrow">بازارک · آسیاب صداقت</span>
+          <h1>{selectedCategory ? `کاتالوگ ${selectedCategory.name}` : "کاتالوگ محصولات"}</h1>
+          <p>{selectedCategory ? "فهرست محصولات انتخاب‌شده برای شما" : "قیمت‌ها و سطح‌های فروش به‌روز"}</p>
         </div>
+        <span className="catalog-count">{products.length.toLocaleString("fa-IR")} محصول</span>
       </div>
-      {!selectedCategoryId && !!categories.length && <div className="mt-4 flex flex-wrap gap-2">{categories.map((category) => <Link key={category.id} href={`/catalog?category=${encodeURIComponent(category.id)}`} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm font-bold text-oxblood">کاتالوگ {category.name}</Link>)}</div>}
-      {selectedCategory && <p className="mt-3 text-xs text-oxblood-dark/55">این لینک فقط محصولات دسته «{selectedCategory.name}» را نشان می‌دهد و قابل ارسال است.</p>}
-      {(contact.mobile || contact.phone || contact.address) && <section className="mt-5 rounded-xl border border-oxblood/10 bg-white p-4 text-sm"><h2 className="font-black text-oxblood">اطلاعات تماس</h2><div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-oxblood-dark/70">{contact.mobile && <a dir="ltr" href={`tel:${phoneDigits(contact.mobile)}`}>همراه: {contact.mobile}</a>}{contact.phone && <a dir="ltr" href={`tel:${phoneDigits(contact.phone)}`}>ثابت: {contact.phone}</a>}{contact.address && <span>آدرس: {contact.address}</span>}</div></section>}
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {!selectedCategoryId && !!categories.length && <section className="catalog-categories"><div className="flex items-center justify-between"><h2>دسته‌بندی‌ها</h2><span>برای مشاهده یا ارسال لینک دسته انتخاب کنید</span></div><div className="catalog-category-grid">{categories.map((category) => <article key={category.id} className="catalog-category"><Link href={`/catalog?category=${encodeURIComponent(category.id)}`}><span className="catalog-category-icon"><BookOpen size={17}/></span><b>{category.name}</b><small>مشاهده محصولات</small></Link><button type="button" onClick={() => void copyCategoryLink(category.id)} aria-label={`کپی لینک ${category.name}`}><Copy size={16}/>{copiedCategoryId === category.id ? "کپی شد" : "کپی لینک"}</button></article>)}</div></section>}
+      {selectedCategory && <p className="catalog-category-note">این صفحه فقط محصولات دسته «{selectedCategory.name}» را نشان می‌دهد و لینک آن قابل ارسال است.</p>}
+      {(contact.mobile || contact.phone || contact.address) && <section className="catalog-contact"><div className="catalog-contact-icon">☎</div><div><h2>اطلاعات تماس و سفارش</h2><div>{contact.mobile && <a dir="ltr" href={`tel:${phoneDigits(contact.mobile)}`}>همراه: {contact.mobile}</a>}{contact.phone && <a dir="ltr" href={`tel:${phoneDigits(contact.phone)}`}>ثابت: {contact.phone}</a>}{contact.address && <span>آدرس: {contact.address}</span>}</div></div></section>}
+      <div className="catalog-products">
         {products.map((product) => (
           <button
             key={product.id}
             onClick={() => onSelect(product)}
-            className="flex gap-3 rounded-lg border border-oxblood/10 bg-white p-4 text-right shadow-sm transition hover:border-oxblood/45"
+            className="catalog-product-card"
           >
-            <div className="grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-lg bg-blush text-xs text-oxblood-dark/45">{product.imageUrl ? <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" /> : <span>تصویر محصول</span>}</div>
-            <div className="min-w-0 flex-1"><b className="block text-lg font-black">{product.name}</b>
-              {product.description && <p className="mt-1 line-clamp-2 text-xs font-medium leading-5 text-oxblood-dark">{product.description}</p>}
-              <p className="mt-3 text-xs font-bold text-oxblood">آخرین خرید: {money(latestPurchase(product))}</p>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="catalog-product-image">{product.imageUrl ? <img src={product.imageUrl} alt={product.name} /> : <span>تصویر محصول</span>}</div>
+            <div className="catalog-product-info"><b>{product.name}</b>
+              {product.description && <p>{product.description}</p>}
+              <div className="catalog-prices">
                 {(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) }))).map((level) => (
-                  <span key={level.id} className="rounded-lg bg-blush p-2"><span className="block text-oxblood-dark/45">{level.label}</span><b className="mt-1 block text-oxblood">{money(levelPrice(product, level))}</b></span>
+                  <span key={level.id}><small>{level.label}</small><strong>{money(levelPrice(product, level))}</strong></span>
                 ))}
               </div>
             </div>

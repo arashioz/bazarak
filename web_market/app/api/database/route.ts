@@ -26,6 +26,25 @@ export async function GET(request: NextRequest) {
     if (!isValidAdminToken(request.cookies.get(ADMIN_COOKIE)?.value)) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
+    const section = request.nextUrl.searchParams.get("section");
+    if (section === "meta") {
+      const stored = await (await mongoDatabase()).collection<DatabaseDocument>("appState").findOne(
+        { _id: "primary" },
+        { projection: { settings: 1, tasks: 1 } },
+      );
+      if (!stored) throw new Error("MongoDB data has not been initialized");
+      return NextResponse.json({ settings: stored.settings, tasks: stored.tasks });
+    }
+    if (section === "products" || section === "customers") {
+      const offset = Math.max(0, Number.parseInt(request.nextUrl.searchParams.get("offset") || "0", 10) || 0);
+      const limit = Math.min(500, Math.max(1, Number.parseInt(request.nextUrl.searchParams.get("limit") || "200", 10) || 200));
+      const [page] = await (await mongoDatabase()).collection<DatabaseDocument>("appState").aggregate<{ items: unknown[]; total: number }>([
+        { $match: { _id: "primary" } },
+        { $project: { items: { $slice: [`$${section}`, offset, limit] }, total: { $size: { $ifNull: [`$${section}`, []] } } } },
+      ]).toArray();
+      if (!page) throw new Error("MongoDB data has not been initialized");
+      return NextResponse.json({ items: page.items, offset, limit, total: page.total, hasMore: offset + page.items.length < page.total });
+    }
     return NextResponse.json(await readDatabase());
   } catch {
     return NextResponse.json({ error: "database unavailable" }, { status: 500 });
@@ -134,7 +153,11 @@ export async function PUT(request: NextRequest) {
         previous.set(`id:${String(item.id ?? "")}`, item);
         previous.set(`name:${String(item.name ?? "").trim()}`, item);
       }
-      const protectedProducts = catalog.products.map((product) => {
+      const incomingProductKeys = new Set(catalog.products.flatMap((product) => {
+        const item = product as Record<string, unknown>;
+        return [`id:${String(item.id ?? "")}`, `name:${String(item.name ?? "").trim()}`];
+      }));
+      const protectedProducts: Record<string, unknown>[] = catalog.products.map((product) => {
         const item = product as Record<string, unknown>;
         const old = previous.get(`id:${String(item.id ?? "")}`) || previous.get(`name:${String(item.name ?? "").trim()}`);
         const oldCategories = Array.isArray(old?.categoryIds) ? old.categoryIds : [];
@@ -156,6 +179,12 @@ export async function PUT(request: NextRequest) {
           priceHistory: Array.isArray(item.priceHistory) && item.priceHistory.length ? item.priceHistory : old?.priceHistory || [],
         };
       });
+      // The manager UI loads products in pages. Keep untouched pages in MongoDB
+      // when saving an edit from the currently loaded page.
+      for (const product of Array.isArray(current?.products) ? current.products : []) {
+        const item = product as Record<string, unknown>;
+        if (!incomingProductKeys.has(`id:${String(item.id ?? "")}`) && !incomingProductKeys.has(`name:${String(item.name ?? "").trim()}`)) protectedProducts.push(item);
+      }
       const incomingSettings = catalog.settings as Record<string, unknown>;
       const oldSettings = (current?.settings || {}) as Record<string, unknown>;
       const oldCategories = Array.isArray(oldSettings.categories) ? oldSettings.categories : [];

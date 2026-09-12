@@ -3,7 +3,9 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  CalendarDays,
   ChevronLeft,
+  ChevronRight,
   LoaderCircle,
   Plus,
   Search,
@@ -286,6 +288,7 @@ export default function MobileServicesApp() {
     if (!response.ok) throw new Error("follow-up save failed");
     setCustomers((list) => list.map((customer) => customer.id === customerId ? { ...customer, followUps: [followUp, ...(customer.followUps || [])] } : customer));
   };
+  const selectedCustomer = selected && (customers.find((customer) => customer.id === selected.customerId || (customer.name === selected.customerName && digits(customer.mobile || customer.phone) === digits(selected.phone))) || { id: selected.customerId || 0, name: selected.customerName, mobile: selected.phone, phone: "", address: selected.address, group: "خدمات سیار", description: "", active: true, followUps: [] });
   if (loading) return <MobileServicesSkeleton progress={progress} />;
   return (
     <main className="min-h-screen bg-blush p-4 pb-20 text-oxblood-dark sm:p-6">
@@ -545,7 +548,7 @@ export default function MobileServicesApp() {
           <CustomerHistory
             record={selected}
             records={data.records}
-            customer={customers.find((customer) => customer.id === selected.customerId) || { id: selected.customerId || Date.now(), name: selected.customerName, mobile: selected.phone, phone: "", address: selected.address, group: "خدمات سیار", description: "", active: true, followUps: [] }}
+            customer={selectedCustomer!}
             onClose={() => setSelected(null)}
             onSetPaymentStatus={setPaymentStatus}
             onRemove={remove}
@@ -620,7 +623,7 @@ function CustomerHistory({
     event.preventDefault();
     if (!followUpNote.trim()) return;
     setSavingFollowUp(true);
-    try { await onAddFollowUp(customer.id, { date: followUpDate, note: followUpNote.trim() }); setFollowUpDate(jalali()); setFollowUpNote(""); } finally { setSavingFollowUp(false); }
+    try { await onAddFollowUp(customer.id, { date: followUpDate, note: followUpNote.trim() }); setFollowUpDate(jalali()); setFollowUpNote(""); } catch { window.alert("ذخیره پیگیری در سرور ناموفق بود. ابتدا اطلاعات مشتری را ذخیره کنید."); } finally { setSavingFollowUp(false); }
   };
   return (
     <div className="fixed inset-0 z-40 grid place-items-end bg-oxblood-dark/45 p-4 sm:place-items-center">
@@ -703,13 +706,35 @@ function CustomerHistory({
               </div>
             </article>
           ))}
-        </div></> : <section className="mt-5"><h3 className="font-black">سابقهٔ پیگیری</h3><form onSubmit={saveFollowUp} className="mt-3 rounded-xl border border-oxblood/10 bg-blush p-3"><label className="text-xs font-bold">تاریخ<input value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} className="mt-1 w-full rounded-lg border p-2 font-normal" /></label><label className="mt-3 block text-xs font-bold">یادداشت پیگیری<textarea required value={followUpNote} onChange={(event) => setFollowUpNote(event.target.value)} rows={3} className="mt-1 w-full rounded-lg border p-2 font-normal" /></label><button disabled={savingFollowUp} className="mt-3 rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white disabled:opacity-50">{savingFollowUp ? "در حال ذخیره..." : "افزودن سابقه پیگیری"}</button></form>{followUps.length > 0 ? <div className="mt-3 space-y-3 border-r-2 border-oxblood/15 pr-4">{followUps.map((followUp, index) => <article key={`${followUp.date}-${index}`} className="relative rounded-xl border border-oxblood/10 bg-white p-3 shadow-sm before:absolute before:-right-[22px] before:top-4 before:h-3 before:w-3 before:rounded-full before:bg-oxblood"><b className="text-sm text-oxblood">{displayJalaliDate(followUp.date)}</b><p className="mt-2 whitespace-pre-wrap text-sm text-oxblood-dark/75">{followUp.note}</p></article>)}</div> : <p className="mt-4 text-sm text-oxblood/55">هنوز پیگیری ثبت نشده است.</p>}</section>}
+        </div></> : <section className="mt-5"><h3 className="font-black">سابقهٔ پیگیری</h3><form onSubmit={saveFollowUp} className="mt-3 rounded-xl border border-oxblood/10 bg-blush p-3"><MobileJalaliDatePicker value={followUpDate} onChange={setFollowUpDate}/><label className="mt-3 block text-xs font-bold">یادداشت پیگیری<textarea required value={followUpNote} onChange={(event) => setFollowUpNote(event.target.value)} rows={3} placeholder="شرح پیگیری جدید..." className="mt-1 w-full rounded-lg border p-2 font-normal" /></label><button disabled={savingFollowUp} className="mt-3 rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white disabled:opacity-50">{savingFollowUp ? "در حال ذخیره..." : "افزودن سابقه پیگیری"}</button></form>{followUps.length > 0 ? <div className="mt-3 space-y-3 border-r-2 border-oxblood/15 pr-4">{followUps.map((followUp, index) => <article key={`${followUp.date}-${index}`} className="relative rounded-xl border border-oxblood/10 bg-white p-3 shadow-sm before:absolute before:-right-[22px] before:top-4 before:h-3 before:w-3 before:rounded-full before:bg-oxblood"><b className="text-sm text-oxblood">{displayJalaliDate(followUp.date)}</b><p className="mt-2 whitespace-pre-wrap text-sm text-oxblood-dark/75">{followUp.note}</p></article>)}</div> : <p className="mt-4 text-sm text-oxblood/55">هنوز پیگیری ثبت نشده است.</p>}</section>}
       </section>
     </div>
   );
 }
 function MobileServicesSkeleton({ progress }: { progress: number }) {
   return <main className="min-h-screen bg-blush p-4 sm:p-6"><section className="mx-auto max-w-6xl"><div className="h-1 overflow-hidden rounded-full bg-oxblood/10"><div className="h-full bg-oxblood transition-all duration-200" style={{ width: `${progress}%` }} /></div><p className="mt-3 text-sm font-bold text-oxblood">در حال دریافت اطلاعات خدمات سیار…</p><div className="mt-5 animate-pulse space-y-5"><div className="h-28 rounded-2xl bg-white"/><div className="h-72 rounded-2xl bg-white"/><div className="h-64 rounded-2xl bg-white"/></div></section></main>;
+}
+
+const mobileJalaliParts = (date: Date) => {
+  const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || "";
+  return { year: part("year"), month: part("month"), day: part("day") };
+};
+const mobileJalaliDate = (date: Date) => { const { year, month, day } = mobileJalaliParts(date); return `${year}/${month}/${day}`; };
+const shiftMobileDate = (date: Date, days: number) => { const next = new Date(date); next.setDate(next.getDate() + days); return next; };
+
+function MobileJalaliDatePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(() => new Date());
+  const cursorParts = mobileJalaliParts(cursor);
+  let first = new Date(cursor);
+  while (mobileJalaliParts(first).day !== "۰۱") first = shiftMobileDate(first, -1);
+  let end = new Date(first);
+  while (mobileJalaliParts(shiftMobileDate(end, 1)).month === cursorParts.month) end = shiftMobileDate(end, 1);
+  const days = Array.from({ length: Math.round((end.getTime() - first.getTime()) / 86400000) + 1 }, (_, index) => shiftMobileDate(first, index));
+  const blanks = (first.getDay() + 1) % 7;
+  const monthTitle = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "long" }).format(cursor);
+  return <><button type="button" onClick={() => setOpen(true)} className="flex w-full items-center justify-between rounded-lg border border-oxblood/15 bg-white p-2 text-sm"><span>{value || jalali()}</span><CalendarDays size={17} className="text-oxblood"/></button>{open && <div className="fixed inset-0 z-50 grid place-items-center bg-oxblood-dark/45 p-4"><section className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl"><div className="mb-3 flex items-center justify-between"><button type="button" onClick={() => setCursor(shiftMobileDate(cursor, -32))} className="rounded p-2 hover:bg-blush"><ChevronRight size={18}/></button><b className="text-sm">{monthTitle}</b><button type="button" onClick={() => setCursor(shiftMobileDate(cursor, 32))} className="rounded p-2 hover:bg-blush"><ChevronLeft size={18}/></button></div><div className="grid grid-cols-7 text-center text-xs text-oxblood/60">{"ش ی د س چ پ ج".split(" ").map((day) => <span key={day} className="py-1">{day}</span>)}</div><div className="grid grid-cols-7 gap-1">{Array.from({ length: blanks }).map((_, index) => <span key={index}/>)}{days.map((date) => { const dateValue = mobileJalaliDate(date); const selected = dateValue === value; return <button type="button" key={date.toISOString()} onClick={() => { onChange(dateValue); setOpen(false); }} className={`h-9 rounded-md text-xs font-bold ${selected ? "bg-oxblood text-white" : "hover:bg-blush"}`}>{mobileJalaliParts(date).day}</button>; })}</div><div className="mt-4 flex gap-2"><button type="button" onClick={() => { onChange(jalali()); setCursor(new Date()); setOpen(false); }} className="flex-1 rounded-lg bg-blush p-2 text-xs font-bold text-oxblood">امروز</button><button type="button" onClick={() => setOpen(false)} className="flex-1 rounded-lg border p-2 text-xs font-bold">بستن</button></div></section></div>}</>;
 }
 function UnpaidDialog({
   records,
