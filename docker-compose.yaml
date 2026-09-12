@@ -18,7 +18,7 @@ services:
       context: ./bazarak-map
       dockerfile: Dockerfile
     ports:
-      - "3001:3000"
+      - "3001:3001"
     environment:
       # Intentionally identical to bazarek: the map reads/writes appState in
       # the primary database, not a second database.
