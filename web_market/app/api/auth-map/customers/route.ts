@@ -1,6 +1,6 @@
  import { NextRequest, NextResponse } from "next/server";
  import { mongoDatabase } from "@/lib/mongodb";
- import { MAP_ADMIN_COOKIE, isValidMapToken, getMapRole } from "@/app/lib/auth-map-utils";
+ import { MAP_ADMIN_COOKIE, MAP_DRIVER_COOKIE, isValidMapToken, getMapRole } from "@/app/lib/auth-map-utils";
  
  export async function GET(request: NextRequest) {
    const token = request.cookies.get(MAP_ADMIN_COOKIE)?.value || request.cookies.get(MAP_DRIVER_COOKIE)?.value;

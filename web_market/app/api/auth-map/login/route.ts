@@ -1,5 +1,5 @@
  import { NextRequest, NextResponse } from "next/server";
- import { createMapToken, validAdminPassword } from "@/app/lib/auth-map-utils";
+ import { createMapToken } from "@/app/lib/auth-map-utils";
  import { MAP_ADMIN_COOKIE, MAP_DRIVER_COOKIE } from "@/app/lib/auth-map-utils";
  
  // Note: For now, we use the same admin password for simplicity, 

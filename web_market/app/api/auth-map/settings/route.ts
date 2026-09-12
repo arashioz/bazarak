@@ -10,7 +10,7 @@
    try {
      const db = await mongoDatabase();
      // We use a separate collection for settings to keep it clean
-     const settings = await db.collection("map_crm_settings").findOne({ _id: "primary_settings" });
+     const settings = await db.collection<{ _id: string; defaultCity?: string }>("map_crm_settings").findOne({ _id: "primary_settings" });
      return NextResponse.json(settings || { defaultCity: "" });
    } catch (error) {
      return NextResponse.json({ error: "failed to fetch settings" }, { status: 500 });
@@ -26,7 +26,7 @@
      const data = await request.json();
      const db = await mongoDatabase();
      
-     await db.collection("map_crm_settings").updateOne(
+     await db.collection<{ _id: string }>("map_crm_settings").updateOne(
        { _id: "primary_settings" },
        { $set: { ...data, updatedAt: new Date() } },
        { upsert: true }
