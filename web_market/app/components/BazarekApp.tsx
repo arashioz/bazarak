@@ -174,7 +174,7 @@ const readMongoDatabase = async () => {
   const metaResponse = await fetch("/api/database?section=meta", { cache: "no-store" });
   if (!metaResponse.ok) throw new Error("database unavailable");
   const metadata = await metaResponse.json() as Omit<ServerDatabase, "products">;
-  const response = await fetch("/api/database?section=products&offset=0&limit=200", { cache: "no-store" });
+  const response = await fetch("/api/database?section=products&offset=0&limit=2500", { cache: "no-store" });
   if (!response.ok) throw new Error("database unavailable");
   const page = await response.json() as { items?: unknown[]; hasMore?: boolean };
   const products = Array.isArray(page.items) ? page.items : [];

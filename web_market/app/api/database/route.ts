@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     }
     if (section === "products" || section === "customers") {
       const offset = Math.max(0, Number.parseInt(request.nextUrl.searchParams.get("offset") || "0", 10) || 0);
-      const limit = Math.min(500, Math.max(1, Number.parseInt(request.nextUrl.searchParams.get("limit") || "200", 10) || 200));
+      const limit = Math.min(2500, Math.max(1, Number.parseInt(request.nextUrl.searchParams.get("limit") || "200", 10) || 200));
       const [page] = await (await mongoDatabase()).collection<DatabaseDocument>("appState").aggregate<{ items: unknown[]; total: number }>([
         { $match: { _id: "primary" } },
         { $project: { items: { $slice: [`$${section}`, offset, limit] }, total: { $size: { $ifNull: [`$${section}`, []] } } } },
