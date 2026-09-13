@@ -47,6 +47,10 @@ services:
 
   mongo:
     image: mongo:7
+    # Available only from the server itself. Use an SSH tunnel before opening
+    # it in MongoDB Compass; do not expose MongoDB publicly.
+    ports:
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongo-data:/data/db
     healthcheck:

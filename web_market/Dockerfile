@@ -20,7 +20,11 @@ WORKDIR /app
 COPY --from=build /app/public/fonts ./public/fonts
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
-COPY --from=build /app/scripts/ensure-mongo-appstate.mjs ./scripts/ensure-mongo-appstate.mjs
+# Keep operational scripts and their JSON seed data in the runtime image so
+# they can be executed on the server with `docker compose exec bazarek ...`.
+COPY --from=build /app/scripts ./scripts
+COPY --from=build /app/app/data ./app/data
+COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules/xlsx ./node_modules/xlsx
 COPY --from=build /app/node_modules/adler-32 ./node_modules/adler-32
 COPY --from=build /app/node_modules/cfb ./node_modules/cfb
