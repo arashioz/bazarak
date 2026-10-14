@@ -2,7 +2,7 @@
 
 import { Phone, Search, Users, X } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 
 const phone = (value: string) => value.replace(/\D/g, "");
@@ -20,7 +20,7 @@ export default function CustomerDrawer() {
   const loadCustomers = useCallback(async () => {
     setLoading(true); setFailed(false);
     try {
-      const response = await fetch("/api/database", { cache: "no-store" });
+      const response = await fetch("/api/database?section=customerDirectory", { cache: "no-store" });
       if (!response.ok) throw new Error("database request failed");
       const database = await response.json();
       setCustomers(Array.isArray(database.customers) ? database.customers : []);
@@ -31,7 +31,6 @@ export default function CustomerDrawer() {
       setLoading(false);
     }
   }, []);
-  useEffect(() => { void loadCustomers(); }, [loadCustomers]);
   const visible = useMemo(() => {
     const text = query.trim();
     const matches = customers.filter((customer) =>

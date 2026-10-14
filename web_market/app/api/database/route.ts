@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mongoDatabase } from "@/lib/mongodb";
+import { recordPricingChange } from "@/app/lib/price-history";
 import { ADMIN_COOKIE, isValidAdminToken } from "@/app/lib/auth";
 
 export const runtime = "nodejs";
 
-const writableSections = new Set(["products", "settings", "catalog", "productCategory", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "productDelete", "mobileServices"]);
+const writableSections = new Set(["products", "settings", "catalog", "productCategory", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "productDelete", "mobileServices", "priceRounding"]);
 
 type Database = Record<string, unknown>;
 type DatabaseDocument = Database & { _id: string };
@@ -27,6 +28,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
     const section = request.nextUrl.searchParams.get("section");
+    if (section === "customerDirectory") {
+      const stored = await (await mongoDatabase()).collection<DatabaseDocument>("appState").findOne(
+        { _id: "primary" },
+        { projection: { _id: 0, customers: 1, customerSettings: 1, customerNotes: 1 } },
+      );
+      if (!stored) throw new Error("MongoDB data has not been initialized");
+      return NextResponse.json(stored);
+    }
     if (section === "meta") {
       const stored = await (await mongoDatabase()).collection<DatabaseDocument>("appState").findOne(
         { _id: "primary" },
@@ -61,6 +70,31 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "invalid database section" }, { status: 400 });
     }
     const collection = (await mongoDatabase()).collection<DatabaseDocument>("appState");
+    if (section === "priceRounding") {
+      if (![0, 100, 1000].includes(data)) return NextResponse.json({ error: "invalid price rounding" }, { status: 400 });
+      // Compare the read values before appending snapshots, so a concurrent
+      // product edit cannot leave the historical percentages out of sync.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const current = await collection.findOne({ _id: "primary" }, { projection: { products: 1, settings: 1 } });
+        if (!current) return NextResponse.json({ error: "database not initialized" }, { status: 404 });
+        const before = (current.settings || {}) as Record<string, unknown>;
+        const after = { ...before, priceRounding: data };
+        const changedAt = new Date().toISOString();
+        const updates: Record<string, unknown> = { "settings.priceRounding": data, updatedAt: new Date() };
+        const products = (Array.isArray(current.products) ? current.products : []).map((value, index) => {
+          const product = value as Record<string, unknown>;
+          const priceHistory = recordPricingChange(product, product, before, after, changedAt);
+          updates[`products.${index}.priceHistory`] = priceHistory;
+          return { ...product, priceHistory };
+        });
+        const result = await collection.updateOne(
+          { _id: "primary", products: current.products ?? { $exists: false }, settings: current.settings ?? { $exists: false } },
+          { $set: updates },
+        );
+        if (result.matchedCount) return NextResponse.json({ products, settings: after });
+      }
+      return NextResponse.json({ error: "concurrent product update; retry" }, { status: 409 });
+    }
     if (section === "customerFollowUp") {
       const followUp = data as { customerId?: number; date?: string; note?: string };
       if (!followUp.customerId || !String(followUp.note || "").trim()) return NextResponse.json({ error: "invalid follow-up" }, { status: 400 });
@@ -189,7 +223,12 @@ export async function PUT(request: NextRequest) {
       const oldSettings = (current?.settings || {}) as Record<string, unknown>;
       const oldCategories = Array.isArray(oldSettings.categories) ? oldSettings.categories : [];
       const nextCategories = Array.isArray(incomingSettings.categories) ? incomingSettings.categories : [];
-      const protectedSettings = { ...oldSettings, ...incomingSettings, categories: [...new Map([...oldCategories, ...nextCategories].map((category) => [String((category as { id?: unknown }).id ?? ""), category])).values()] };
+      const protectedSettings: Record<string, unknown> = { ...oldSettings, ...incomingSettings, categories: [...new Map([...oldCategories, ...nextCategories].map((category) => [String((category as { id?: unknown }).id ?? ""), category])).values()] };
+      const changedAt = new Date().toISOString();
+      for (const product of protectedProducts) {
+        const old = previous.get(`id:${String(product.id ?? "")}`) || previous.get(`name:${String(product.name ?? "").trim()}`);
+        if (old) product.priceHistory = recordPricingChange(old, product, oldSettings, protectedSettings, changedAt);
+      }
       await collection.updateOne(
         { _id: "primary" },
         { $set: { products: protectedProducts, settings: protectedSettings, updatedAt: new Date() } },

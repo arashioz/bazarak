@@ -12,7 +12,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-import * as XLSX from "xlsx";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { confirmDelete } from "@/app/lib/confirm-delete";
@@ -89,11 +88,7 @@ export default function CustomersApp() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [bulkCategory, setBulkCategory] = useState("");
   useEffect(() => {
-    if (localStorage.getItem("bazarek-role") === "user") {
-      window.location.replace("/products");
-      return;
-    }
-    fetch("/api/database", { cache: "no-store" })
+    fetch("/api/database?section=customerDirectory", { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then((database) => {
         setCustomers(
@@ -172,7 +167,8 @@ export default function CustomersApp() {
     saveCustomerSettings({ ...customerSettings, assignments });
     setSelectedIds([]);
   };
-  const exportCustomers = () => {
+  const exportCustomers = async () => {
+    const XLSX = await import("xlsx");
     const rows = customers.map(
       ({ name, group, mobile, phone, description, active, address }) => ({
         نام: name,
@@ -197,6 +193,7 @@ export default function CustomersApp() {
     event.currentTarget.value = "";
     if (!file) return;
     try {
+      const XLSX = await import("xlsx");
       const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
         workbook.Sheets[workbook.SheetNames[0]],
@@ -250,7 +247,7 @@ export default function CustomersApp() {
       window.alert("ورود اکسل یا ذخیره مشتریان در MongoDB ناموفق بود.");
     }
   };
-  if (loading) return <main className="min-h-screen bg-blush p-5 text-oxblood sm:p-8"><section className="mx-auto max-w-6xl"><div className="rounded-2xl bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><div className="h-10 w-10 animate-spin rounded-full border-4 border-oxblood/15 border-t-oxblood"/><div><b className="block text-lg font-black">در حال دریافت مشتریان</b><span className="text-sm text-oxblood-dark/55">اطلاعات از MongoDB خوانده می‌شود…</span></div></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{Array.from({ length: 10 }).map((_, index) => <article key={index} className="animate-pulse rounded-lg border border-oxblood/10 bg-white p-4 shadow-sm"><div className="h-5 w-3/5 rounded bg-oxblood/10"/><div className="mt-3 h-3 w-2/5 rounded bg-oxblood/10"/><div className="mt-5 h-4 w-4/5 rounded bg-oxblood/10"/><div className="mt-4 h-9 w-2/3 rounded-lg bg-oxblood/10"/></article>)}</div></section></main>;
+  if (loading) return <main className="min-h-screen bg-blush p-5 text-oxblood sm:p-8"><section className="mx-auto max-w-6xl"><div className="rounded-2xl bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><div className="h-10 w-10 animate-spin rounded-full border-4 border-oxblood/15 border-t-oxblood"/><div><b className="block text-lg font-black">در حال دریافت مشتریان</b><span className="text-sm text-oxblood-dark/55">لطفاً کمی صبر کنید…</span></div></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{Array.from({ length: 10 }).map((_, index) => <article key={index} className="animate-pulse rounded-lg border border-oxblood/10 bg-white p-4 shadow-sm"><div className="h-5 w-3/5 rounded bg-oxblood/10"/><div className="mt-3 h-3 w-2/5 rounded bg-oxblood/10"/><div className="mt-5 h-4 w-4/5 rounded bg-oxblood/10"/><div className="mt-4 h-9 w-2/3 rounded-lg bg-oxblood/10"/></article>)}</div></section></main>;
   return (
     <main className="min-h-screen bg-blush p-4 pb-20 text-oxblood-dark sm:p-6">
       <section className="mx-auto max-w-6xl">

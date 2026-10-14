@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
         categories,
         catalogContact: settings.catalogContact || {},
         currency: settings.currency || "toman",
+        priceRounding: settings.priceRounding ?? 0,
       },
       categoryFound: categoryExists,
     });

@@ -13,7 +13,8 @@
     "migrate:products": "node scripts/migrate-products-to-mongo.mjs",
     "seed:persons": "node scripts/import-persons-customers.mjs",
     "seed:mobile-services": "node scripts/seed-mobile-services.mjs",
-    "geocode:mobile-services": "node scripts/geocode-mobile-service-customers.mjs"
+    "geocode:mobile-services": "node scripts/geocode-mobile-service-customers.mjs",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
