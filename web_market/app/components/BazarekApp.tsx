@@ -200,7 +200,7 @@ const readCatalog = async (categoryId: string | null) => {
 };
 
 let databaseWriteQueue: Promise<unknown> = Promise.resolve();
-const saveMongoSection = (section: "products" | "settings" | "catalog" | "productCategory" | "tasks" | "priceRounding", data: unknown) => {
+const saveMongoSection = (section: "products" | "settings" | "catalog" | "productCategory" | "tasks" | "priceRounding" | "bulkLevels", data: unknown) => {
   databaseWriteQueue = databaseWriteQueue.catch(() => undefined).then(async () => {
     const response = await fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section, data }) });
     if (!response.ok) throw new Error("database update failed");
@@ -247,6 +247,64 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   };
   const saveProductCategory = (productId: number, categoryId: string, assigned: boolean) =>
     saveMongoSection("productCategory", { productId, categoryId, assigned });
+  const mergePriceHistory = (items: { id?: number; priceHistory?: PriceHistory[] }[]) => {
+    const byId = new Map(items.map((item) => [Number(item.id), Array.isArray(item.priceHistory) ? item.priceHistory.filter((entry) => entry && typeof entry === "object") : []]));
+    const withHistory = (product: Product) => {
+      const loaded = byId.get(product.id);
+      // A bulk save can record a newer snapshot while this request is in flight.
+      if (!loaded || loaded.length < product.priceHistory.length) return product;
+      return { ...product, priceHistory: loaded };
+    };
+    productsRef.current = productsRef.current.map(withHistory);
+    setProducts((current) => current.map(withHistory));
+    setSelected((current) => current ? withHistory(current) : null);
+  };
+  const loadProductHistories = async (offset: number, count: number) => {
+    if (!count) return;
+    const response = await fetch(`/api/database?section=productHistories&offset=${offset}&limit=${count}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const page = await response.json() as { items?: { id?: number; priceHistory?: PriceHistory[] }[] };
+    mergePriceHistory(page.items || []);
+  };
+  const saveBulkLevels = async (ids: number[], levels: ProductLevel[] | null) => {
+    const previous = productsRef.current;
+    const selectedIds = new Set(ids);
+    const optimistic = previous.map((product) => {
+      if (!selectedIds.has(product.id)) return product;
+      const nextLevels = levels === null ? [] : levels.map((level, index) => {
+        const copy = { ...level, id: `${product.id}-${level.id || index}` };
+        return copy.percent === undefined ? copy : { ...copy, price: levelPriceForBasePrice(product.price, copy) };
+      });
+      return { ...product, levels: nextLevels, updated: now() };
+    });
+    productsRef.current = optimistic;
+    setProducts(optimistic);
+    try {
+      const result = await saveMongoSection("bulkLevels", { ids, levels }) as { products?: { id: number; levels?: ProductLevel[]; priceHistory?: PriceHistory[]; updated?: string }[] };
+      const saved = new Map((result.products || []).map((product) => [Number(product.id), product]));
+      const patch = (product: Product) => {
+        const next = saved.get(product.id);
+        if (!next) return product;
+        return {
+          ...product,
+          levels: Array.isArray(next.levels) ? next.levels : product.levels,
+          priceHistory: Array.isArray(next.priceHistory) ? next.priceHistory : product.priceHistory,
+          updated: next.updated || product.updated,
+        };
+      };
+      productsRef.current = productsRef.current.map(patch);
+      setProducts((current) => current.map(patch));
+      setSelected((current) => current ? patch(current) : null);
+      showNotice("قیمت گروهی ذخیره شد.");
+      return true;
+    } catch {
+      productsRef.current = previous;
+      setProducts(previous);
+      setSelected((current) => current ? previous.find((product) => product.id === current.id) || current : null);
+      setError("ذخیره قیمت گروهی در MongoDB ناموفق بود؛ اتصال سرور را بررسی کنید.");
+      return false;
+    }
+  };
   const saveSettings = (next: AppSettings) => { setSettings(next); void saveCatalog(productsRef.current, next).catch(() => setError("ذخیره دسته‌بندی‌ها در MongoDB ناموفق بود.")); };
   const saveTasks = (next: Task[]) => { setTasks(next); void saveMongoSection("tasks", next).catch(() => setError("ذخیره تسک در MongoDB ناموفق بود.")); };
   const loadMoreProducts = async () => {
@@ -259,6 +317,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       const next = normalizeProducts(page.items);
       setProducts((current) => { const merged = mergeProducts(current, next); productsRef.current = merged; return merged; });
       setProductsPage({ hasMore: Boolean(page.hasMore), nextOffset: productsPage.nextOffset + next.length, loading: false });
+      void loadProductHistories(productsPage.nextOffset, next.length).catch(() => undefined);
     } catch {
       setProductsPage((current) => ({ ...current, loading: false }));
       setError("بارگذاری محصولات بیشتر ناموفق بود.");
@@ -301,6 +360,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         setTasks(database.tasks || []);
         window.clearTimeout(loadingTimeout);
         setDatabaseLoaded(true);
+        if (initialView !== "catalog" && pageInfo) void loadProductHistories(0, nextProducts.length).catch(() => undefined);
 
       }
 
@@ -555,14 +615,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             onCatalogContactChange={(catalogContact) => saveSettings({ ...settings, catalogContact })}
             onBrowseMode={(browseMode) => saveSettings({ ...settings, browseMode })}
             onAssignCategory={(categoryId, ids) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, categoryIds: Array.from(new Set([...product.categoryIds, categoryId])) } : product))}
-            onApplyLevels={(ids, levels) => saveProducts(products.map((product) => {
-              if (!ids.includes(product.id)) return product;
-              const nextLevels = levels === null ? [] : levels.map((level, index) => {
-                const copy = { ...level, id: `${product.id}-${level.id || index}` };
-                return copy.percent === undefined ? copy : { ...copy, price: levelPriceForBasePrice(product.price, copy) };
-              });
-              return { ...product, levels: nextLevels, updated: now() };
-            }))}
+            onApplyLevels={(ids, levels) => { void saveBulkLevels(ids, levels); }}
             onAddTask={addTask}
             onToggleTask={(id) => saveTasks(tasks.map((task) => (task.id === id ? { ...task, done: !task.done } : task)))}
             onDeleteTask={(id) => saveTasks(tasks.filter((task) => task.id !== id))}

@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mongoDatabase } from "@/lib/mongodb";
-import { recordPricingChange } from "@/app/lib/price-history";
+import { levelPriceForBasePrice, recordPricingChange, type ProductLevel } from "@/app/lib/price-history";
 import { ADMIN_COOKIE, isValidAdminToken } from "@/app/lib/auth";
 
 export const runtime = "nodejs";
 
-const writableSections = new Set(["products", "settings", "catalog", "productCategory", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "productDelete", "mobileServices", "priceRounding"]);
+const writableSections = new Set(["products", "settings", "catalog", "productCategory", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "productDelete", "mobileServices", "priceRounding", "bulkLevels"]);
 
 type Database = Record<string, unknown>;
 type DatabaseDocument = Database & { _id: string };
+
+const withoutUndefined = (level: Record<string, unknown>) => Object.fromEntries(Object.entries(level).filter(([, value]) => value !== undefined));
+
+const levelsForProduct = (productId: number, price: unknown, template: Record<string, unknown>[] | null): ProductLevel[] => {
+  if (template === null) return [];
+  return template.map((level, index) => {
+    const copy = withoutUndefined({ ...level, id: `${productId}-${level.id || index}` });
+    const priced = copy.percent === undefined ? copy : { ...copy, price: levelPriceForBasePrice(Number(price) || 0, copy as ProductLevel) };
+    return priced as ProductLevel;
+  });
+};
 
 const readDatabase = async () => {
   const collection = (await mongoDatabase()).collection<DatabaseDocument>("appState");
@@ -52,7 +63,30 @@ export async function GET(request: NextRequest) {
         { $project: { items: { $slice: [`$${section}`, offset, limit] }, total: { $size: { $ifNull: [`$${section}`, []] } } } },
       ]).toArray();
       if (!page) throw new Error("MongoDB data has not been initialized");
-      return NextResponse.json({ items: page.items, offset, limit, total: page.total, hasMore: offset + page.items.length < page.total });
+      // Price history is loaded on its own. Keeping it out of the product list
+      // stops the first screen from waiting on every past price snapshot.
+      const items = section === "products" ? page.items.map((item) => {
+        if (!item || typeof item !== "object") return item;
+        const rest = { ...(item as Record<string, unknown>) };
+        delete rest.priceHistory;
+        return rest;
+      }) : page.items;
+      return NextResponse.json({ items, offset, limit, total: page.total, hasMore: offset + page.items.length < page.total });
+    }
+    if (section === "productHistories") {
+      const offset = Math.max(0, Number.parseInt(request.nextUrl.searchParams.get("offset") || "0", 10) || 0);
+      const limit = Math.min(2500, Math.max(1, Number.parseInt(request.nextUrl.searchParams.get("limit") || "200", 10) || 200));
+      const stored = await (await mongoDatabase()).collection<DatabaseDocument>("appState").findOne(
+        { _id: "primary" },
+        { projection: { products: 1 } },
+      );
+      if (!stored) throw new Error("MongoDB data has not been initialized");
+      const products = Array.isArray(stored.products) ? stored.products : [];
+      const items = products.slice(offset, offset + limit).map((product) => {
+        const item = product as { id?: unknown; priceHistory?: unknown };
+        return { id: item.id, priceHistory: Array.isArray(item.priceHistory) ? item.priceHistory : [] };
+      });
+      return NextResponse.json({ items, offset, limit, total: products.length, hasMore: offset + items.length < products.length });
     }
     return NextResponse.json(await readDatabase());
   } catch {
@@ -171,6 +205,38 @@ export async function PUT(request: NextRequest) {
       }
       await collection.updateOne({ _id: "primary" }, { $set: { customers: [...merged.values()], updatedAt: new Date() } }, { upsert: true });
       return NextResponse.json(await readDatabase());
+    }
+    // Bulk pricing touches only the selected products. Sending and returning the
+    // whole catalog made this request outlive the product-loading timeout.
+    if (section === "bulkLevels") {
+      const payload = data as { ids?: unknown; levels?: unknown };
+      const ids = Array.isArray(payload?.ids) ? [...new Set(payload.ids.map(Number).filter((id) => Number.isFinite(id)))] : [];
+      const levelsAreValid = payload?.levels === null || (Array.isArray(payload?.levels) && payload.levels.every((level) => level && typeof level === "object"));
+      if (!ids.length || ids.length > 2000 || !levelsAreValid) return NextResponse.json({ error: "invalid bulk levels" }, { status: 400 });
+      const template = payload.levels === null ? null : (payload.levels as Record<string, unknown>[]);
+      const current = await collection.findOne({ _id: "primary" }, { projection: { products: 1, settings: 1 } });
+      if (!current) return NextResponse.json({ error: "database not initialized" }, { status: 404 });
+      const products = Array.isArray(current.products) ? current.products : [];
+      const settings = (current.settings || {}) as Record<string, unknown>;
+      const wanted = new Set(ids);
+      const changedAt = new Date().toISOString();
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      const changed: Record<string, unknown>[] = [];
+      products.forEach((value, index) => {
+        const product = value as Record<string, unknown>;
+        const id = Number(product.id);
+        if (!wanted.has(id)) return;
+        const levels = levelsForProduct(id, product.price, template);
+        const next = { ...product, levels, updated: changedAt };
+        const priceHistory = recordPricingChange(product, next, settings, settings, changedAt);
+        updates[`products.${index}.levels`] = levels;
+        updates[`products.${index}.priceHistory`] = priceHistory;
+        updates[`products.${index}.updated`] = changedAt;
+        changed.push({ id, levels, priceHistory, updated: changedAt });
+      });
+      if (!changed.length) return NextResponse.json({ error: "products not found" }, { status: 404 });
+      await collection.updateOne({ _id: "primary" }, { $set: updates });
+      return NextResponse.json({ products: changed });
     }
     // Categories live in settings while product membership lives in categoryIds.
     // Persist them together so a later product update cannot overwrite the
