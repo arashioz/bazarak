@@ -17,6 +17,7 @@ function databaseRoute() {
       return { matchedCount: 1 };
     },
     findOne: async (_filter, options) => options?.projection ? Object.fromEntries(Object.entries(stored).filter(([key]) => options.projection[key] === 1)) : { _id: 'primary', ...stored },
+    aggregate: () => ({ toArray: async () => [{ items: stored.products || [], total: (stored.products || []).length }] }),
   };
   const route = loadSource('app/api/database/route.ts', {
     '@/app/lib/price-history': loadSource('app/lib/price-history.ts', { './pricing': loadSource('app/lib/pricing.ts') }),
@@ -117,4 +118,85 @@ test('clearing custom levels restores default pricing without dropping siblings'
   assert.equal(stored.products[0].priceHistory[0].pricing.levels[0].percent, 12);
   assert.equal(stored.products[1].id, 2);
   assert.deepEqual(stored.products[1].categoryIds, ['araq']);
+});
+
+test('the product list leaves price history for a later request', async () => {
+  const { GET, stored } = databaseRoute();
+  stored.products[0].priceHistory = [{ previousPrice: 1, price: 2, changedAt: 'old' }];
+  const response = await GET({
+    cookies: { get: () => ({ value: 'test-admin' }) },
+    nextUrl: new URL('http://localhost/api/database?section=products&offset=0&limit=10'),
+  });
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.items[0].price, 12360);
+  assert.equal(Object.hasOwn(data.items[0], 'priceHistory'), false);
+  assert.equal(stored.products[0].priceHistory[0].changedAt, 'old');
+  const histories = await GET({
+    cookies: { get: () => ({ value: 'test-admin' }) },
+    nextUrl: new URL('http://localhost/api/database?section=productHistories&offset=0&limit=10'),
+  });
+  const historyPage = await histories.json();
+  assert.equal(historyPage.items[0].priceHistory[0].changedAt, 'old');
+  assert.equal(historyPage.items[0].price, undefined);
+});
+
+test('bulk pricing updates only the selected products and prices each from its own cost', async () => {
+  const { PUT, request, stored, writes } = databaseRoute();
+  stored.products = [
+    { id: 1, name: 'گلاب', price: 1000, categoryIds: ['araq'], percentages: [12], priceHistory: [] },
+    { id: 2, name: 'عرق نعنا', price: 3000, categoryIds: ['araq'], percentages: [9], priceHistory: [{ previousPrice: 1, price: 2, changedAt: 'keep' }] },
+  ];
+  const untouched = structuredClone(stored.products[1]);
+  const response = await PUT(request({
+    ids: [1, 1],
+    levels: [{ id: 'bulk-1', label: 'خرده', unit: 'کیلوگرم', quantity: '۱', percent: 10, price: 0, roundingMode: 'none' }],
+  }, true, 'bulkLevels'));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.products.map((product) => product.id), [1]);
+  assert.equal(body.customers, undefined);
+  assert.equal(stored.products[0].levels[0].id, '1-bulk-1');
+  assert.equal(stored.products[0].levels[0].price, 1100);
+  assert.equal(stored.products[0].priceHistory.length, 1);
+  assert.deepEqual(stored.products[1], untouched);
+  const keys = Object.keys(writes.at(-1)[1].$set);
+  assert.equal(keys.includes('products'), false);
+  assert.equal(keys.some((key) => key.startsWith('products.1')), false);
+  assert.ok(keys.includes('products.0.levels'));
+  const undefinedFields = [];
+  const walk = (value) => {
+    if (value === undefined) undefinedFields.push(true);
+    else if (Array.isArray(value)) value.forEach(walk);
+    else if (value && typeof value === 'object' && !(value instanceof Date)) Object.values(value).forEach(walk);
+  };
+  walk(stored.products[0]);
+  assert.deepEqual(undefinedFields, []);
+
+  const both = await PUT(request({
+    ids: [1, 2],
+    levels: [{ id: 'bulk-2', label: 'عمده', unit: 'کیلوگرم', quantity: '۱', percent: 10, price: 0, roundingMode: 'none' }],
+  }, true, 'bulkLevels'));
+  assert.equal(both.status, 200);
+  assert.equal(stored.products[0].levels[0].price, 1100);
+  assert.equal(stored.products[1].levels[0].price, 3300);
+  assert.equal((await both.json()).products.length, 2);
+});
+
+test('clearing bulk levels restores one product without rewriting the catalog', async () => {
+  const { PUT, request, stored, writes } = databaseRoute();
+  stored.products = [
+    { id: 1, name: 'گلاب', price: 1000, categoryIds: ['araq'], percentages: [12], levels: [{ id: 'bulk-1', label: 'خرده', price: 5000 }], priceHistory: [] },
+    { id: 2, name: 'عرق نعنا', price: 3000, categoryIds: ['araq'], percentages: [9], priceHistory: [] },
+  ];
+  const response = await PUT(request({ ids: [1], levels: null }, true, 'bulkLevels'));
+  assert.equal(response.status, 200);
+  assert.deepEqual(stored.products[0].levels, []);
+  assert.equal(stored.products[0].priceHistory[0].pricing.levels[0].percent, 12);
+  assert.equal(stored.products[1].levels, undefined);
+  assert.equal(Object.keys(writes.at(-1)[1].$set).some((key) => key.startsWith('products.1')), false);
+  assert.equal((await PUT(request({ ids: [], levels: [] }, true, 'bulkLevels'))).status, 400);
+  assert.equal((await PUT(request({ ids: [1], levels: [null] }, true, 'bulkLevels'))).status, 400);
+  assert.equal((await PUT(request({ ids: [1], levels: null }, false, 'bulkLevels'))).status, 401);
+  assert.equal((await PUT(request({ ids: [99], levels: null }, true, 'bulkLevels'))).status, 404);
 });
