@@ -40,6 +40,23 @@ test('captures local rounding, Persian quantities, fixed prices and rial currenc
   assert.equal(pricing.levels[1].percent, undefined);
 });
 
+test('snapshots saved after a price edit contain no undefined fields', () => {
+  const fixed = capturePricing({ price: 0, levels: [
+    { id: 'fixed', label: 'ثابت', quantity: '', unit: 'عدد', price: 0 },
+  ] }, settings);
+  const walk = (value, path, found) => {
+    if (value === undefined) found.push(path);
+    else if (Array.isArray(value)) value.forEach((item, index) => walk(item, `${path}[${index}]`, found));
+    else if (value && typeof value === 'object') Object.entries(value).forEach(([key, item]) => walk(item, `${path}.${key}`, found));
+  };
+  const found = [];
+  walk(fixed, 'fixed', found);
+  walk(recordPricingChange(product, { ...product, price: 15000 }, settings, settings, 'now'), 'history', found);
+  assert.deepEqual(found, []);
+  assert.equal(fixed.levels[0].percent, undefined);
+  assert.equal(fixed.levels[0].finalPrice, 0);
+});
+
 test('legacy history stays unknown and currency changes preserve historical units', () => {
   const legacy = { previousPrice: 10000, price: 12360, changedAt: 'old' };
   const history = recordPricingChange({ ...product, priceHistory: [legacy] }, { ...product, price: 123600 }, settings, { ...settings, currency: 'rial' }, 'now');

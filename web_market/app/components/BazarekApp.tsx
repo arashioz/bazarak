@@ -23,7 +23,7 @@ import {
 import BrandLogo from "./BrandLogo";
 import { capturePricing, levelPriceForBasePrice, type ProductLevel, type PriceHistory, type PricingSnapshot, type PricingLevelSnapshot } from "@/app/lib/price-history";
 import { roundSalePrice, type PriceRounding } from "@/app/lib/pricing";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Component, FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import CustomerDrawer from "./CustomerDrawer";
@@ -64,7 +64,12 @@ const DEFAULT_LABELS = ["سطح ۱", "سطح ۲", "سطح ۳", "سطح ۴"];
 const DEFAULT_SETTINGS: AppSettings = { id: "settings", columnLabels: DEFAULT_LABELS, categories: [], browseMode: "sections", currency: "toman" };
 
 const now = () => new Date().toISOString();
-const money = (value: number) => value.toLocaleString("fa-IR");
+const money = (value: number) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString("fa-IR") : "—";
+};
+const categoryIdsOf = (product: { categoryIds?: unknown }) => Array.isArray(product.categoryIds) ? product.categoryIds.map(String) : [];
+const hasCategory = (product: { categoryIds?: unknown }, id: string) => categoryIdsOf(product).includes(String(id));
 const phoneDigits = (value: string) => value.replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace(/\D/g, "");
 const categoryId = (value: unknown) => { try { return decodeURIComponent(String(value ?? "")).trim(); } catch { return String(value ?? "").trim(); } };
 const latestPurchase = (product: Product) => product.price;
@@ -114,14 +119,15 @@ const normalizeProducts = (raw: unknown): Product[] => {
   return raw.map((item) => {
     const product = item as Partial<Product> & { invoices?: Array<number | Invoice>; priceHistory?: PriceHistory[] };
     const updated = product.updated || now();
-    const price = Number(product.price || 0);
+    const parsedPrice = Number(product.price);
+    const price = Number.isFinite(parsedPrice) ? parsedPrice : 0;
     const invoices =
-      product.invoices?.map((invoice) =>
+      (Array.isArray(product.invoices) ? product.invoices : []).map((invoice) =>
         typeof invoice === "number" ? { price: invoice, registeredAt: updated } : invoice
-      ) || [];
-    const levels = Array.isArray(product.levels)
-      ? product.levels.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(price, level) })
-      : [];
+      );
+    const levels = (Array.isArray(product.levels) ? product.levels : [])
+      .filter((level) => level && typeof level === "object")
+      .map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(price, level) });
     return {
       id: Number(product.id || Date.now()),
       name: String(product.name || "محصول"),
@@ -140,7 +146,7 @@ const normalizeProducts = (raw: unknown): Product[] => {
       rounding: product.rounding || [1000, 1000, 1000, 1000],
       roundingEnabled: product.roundingEnabled || [true, true, true, true],
       fixedPrices: product.fixedPrices || [],
-      categoryIds: product.categoryIds || [],
+      categoryIds: categoryIdsOf(product),
       levels,
     };
   });
@@ -314,8 +320,8 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     navigate("login", "/modir/login");
   };
 
-  const filtered = useMemo(() => products.filter((product) => product.name.includes(q.trim())), [products, q]);
-  const visibleProducts = useMemo(() => [...filtered.filter((product) => !categoryFilter || product.categoryIds.includes(categoryFilter))].sort((a, b) => sortMode === "price-asc" ? a.price - b.price : sortMode === "price-desc" ? b.price - a.price : sortMode === "stock-desc" ? b.stock - a.stock : a.name.localeCompare(b.name, "fa")), [filtered, categoryFilter, sortMode]);
+  const filtered = useMemo(() => products.filter((product) => String(product.name || "").includes(q.trim())), [products, q]);
+  const visibleProducts = useMemo(() => [...filtered.filter((product) => !categoryFilter || hasCategory(product, categoryFilter))].sort((a, b) => sortMode === "price-asc" ? a.price - b.price : sortMode === "price-desc" ? b.price - a.price : sortMode === "stock-desc" ? b.stock - a.stock : String(a.name || "").localeCompare(String(b.name || ""), "fa")), [filtered, categoryFilter, sortMode]);
   const catalogCategoryId = categoryId(searchParams.get("category") || (pathname.startsWith("/catalog/") ? pathname.slice("/catalog/".length) : "")) || null;
   const catalogCategory = settings.categories.find((category) => categoryId(category.id) === catalogCategoryId);
 
@@ -466,7 +472,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   };
   const exportCategoryExcel = async (category: { id: string; name: string }) => {
     const XLSX = await import("xlsx");
-    const categoryProducts = products.filter((product) => product.categoryIds.includes(category.id)); const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...categoryProducts.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || categoryProducts.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`); const rows = categoryProducts.map((product) => ({ "نام محصول": product.name, "قیمت خرید فعلی": product.price, "فعال": product.active ? "فعال" : "غیرفعال", "توضیحات": product.description, ...Object.fromEntries(exportLabels.map((label, index) => [label, capturePricing(product, settings).levels[index]?.finalPrice ?? roundSalePrice(sale(product, index), settings)])) }));
+    const categoryProducts = products.filter((product) => hasCategory(product, category.id)); const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...categoryProducts.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || categoryProducts.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`); const rows = categoryProducts.map((product) => ({ "نام محصول": product.name, "قیمت خرید فعلی": product.price, "فعال": product.active ? "فعال" : "غیرفعال", "توضیحات": product.description, ...Object.fromEntries(exportLabels.map((label, index) => [label, capturePricing(product, settings).levels[index]?.finalPrice ?? roundSalePrice(sale(product, index), settings)])) }));
     const sheet = XLSX.utils.json_to_sheet(rows);
     sheet["!cols"] = [{ wch: 42 }, { wch: 18 }, { wch: 12 }, { wch: 40 }, ...exportLabels.map(() => ({ wch: 16 }))];
     const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, category.name.slice(0, 31) || "دسته"); XLSX.writeFile(book, `دسته ${category.name}.xlsx`);
@@ -538,7 +544,14 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             onCatalogContactChange={(catalogContact) => saveSettings({ ...settings, catalogContact })}
             onBrowseMode={(browseMode) => saveSettings({ ...settings, browseMode })}
             onAssignCategory={(categoryId, ids) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, categoryIds: Array.from(new Set([...product.categoryIds, categoryId])) } : product))}
-            onApplyLevels={(ids, levels) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, levels: levels.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(product.price, level) }), updated: now() } : product))}
+            onApplyLevels={(ids, levels) => saveProducts(products.map((product) => {
+              if (!ids.includes(product.id)) return product;
+              const nextLevels = levels === null ? [] : levels.map((level, index) => {
+                const copy = { ...level, id: `${product.id}-${level.id || index}` };
+                return copy.percent === undefined ? copy : { ...copy, price: levelPriceForBasePrice(product.price, copy) };
+              });
+              return { ...product, levels: nextLevels, updated: now() };
+            }))}
             onAddTask={addTask}
             onToggleTask={(id) => saveTasks(tasks.map((task) => (task.id === id ? { ...task, done: !task.done } : task)))}
             onDeleteTask={(id) => saveTasks(tasks.filter((task) => task.id !== id))}
@@ -554,8 +567,8 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         <AddProductSheet labels={settings.columnLabels} categories={settings.categories} onClose={() => setShowAddProduct(false)} onAdd={add} error={error} />
       )}
       {selected && (
+        <ProductErrorBoundary key={selected.id} name={selected.name}>
         <Detail
-          key={selected.id}
           product={selected}
           settings={settings}
           labels={settings.columnLabels}
@@ -613,6 +626,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             showNotice("محصول از دیتابیس حذف شد.");
           }}
         />
+        </ProductErrorBoundary>
       )}
       {isAdmin && <MobileBottomNav />}
     </main>
@@ -621,7 +635,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
 function CategoryFilter({ categories, products, value, onChange, sortMode, onSort }: { categories: { id: string; name: string }[]; products: Product[]; value: string | null; onChange: (value: string | null) => void; sortMode: string; onSort: (value: string) => void }) {
   const [open, setOpen] = useState(false);
-  return <><button onClick={() => setOpen(true)} className="fixed left-4 top-[calc(50%+1rem)] z-10 rounded-full bg-oxblood px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-oxblood-dark">فیلتر دسته‌ها</button>{open && <div className="fixed inset-0 z-40 flex justify-end"><button onClick={() => setOpen(false)} className="absolute inset-0 bg-oxblood-dark/40" aria-label="بستن"/><section className="relative h-full w-[92vw] max-w-md overflow-y-auto bg-white p-5 shadow-2xl animate-in slide-in-from-right duration-200"><h2 className="text-lg font-black">فیلتر و مرتب‌سازی</h2><select value={sortMode} onChange={(event) => onSort(event.target.value)} className="mt-4 w-full rounded-lg border border-oxblood/15 p-3"><option value="name">نام محصول</option><option value="price-asc">قیمت: کم به زیاد</option><option value="price-desc">قیمت: زیاد به کم</option><option value="stock-desc">بیشترین موجودی</option></select><p className="mt-4 text-xs text-oxblood-dark/55">دسته‌بندی موردنظر را انتخاب کنید.</p><div className="mt-2 space-y-2"><button onClick={() => { onChange(null); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${!value ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>همه محصولات</span><b>{products.filter((product) => product.active).length}</b></button>{categories.map((category) => { const count = products.filter((product) => product.active && product.categoryIds.includes(category.id)).length; return <button key={category.id} onClick={() => { onChange(category.id); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${value === category.id ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>{category.name}</span><b>{count} محصول</b></button>; })}</div></section></div>}</>;
+  return <><button onClick={() => setOpen(true)} className="fixed left-4 top-[calc(50%+1rem)] z-10 rounded-full bg-oxblood px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-oxblood-dark">فیلتر دسته‌ها</button>{open && <div className="fixed inset-0 z-40 flex justify-end"><button onClick={() => setOpen(false)} className="absolute inset-0 bg-oxblood-dark/40" aria-label="بستن"/><section className="relative h-full w-[92vw] max-w-md overflow-y-auto bg-white p-5 shadow-2xl animate-in slide-in-from-right duration-200"><h2 className="text-lg font-black">فیلتر و مرتب‌سازی</h2><select value={sortMode} onChange={(event) => onSort(event.target.value)} className="mt-4 w-full rounded-lg border border-oxblood/15 p-3"><option value="name">نام محصول</option><option value="price-asc">قیمت: کم به زیاد</option><option value="price-desc">قیمت: زیاد به کم</option><option value="stock-desc">بیشترین موجودی</option></select><p className="mt-4 text-xs text-oxblood-dark/55">دسته‌بندی موردنظر را انتخاب کنید.</p><div className="mt-2 space-y-2"><button onClick={() => { onChange(null); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${!value ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>همه محصولات</span><b>{products.filter((product) => product.active).length}</b></button>{categories.map((category) => { const count = products.filter((product) => product.active && hasCategory(product, category.id)).length; return <button key={category.id} onClick={() => { onChange(category.id); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${value === category.id ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>{category.name}</span><b>{count} محصول</b></button>; })}</div></section></div>}</>;
 }
 
 function Login({
@@ -751,6 +765,15 @@ function ProductSections({
   );
 }
 
+class ProductErrorBoundary extends Component<{ children: ReactNode; name?: string }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (this.state.failed) return <article className="min-h-36 rounded-lg border border-red-200 bg-white p-3 text-xs leading-6 text-red-700">نمایش «{this.props.name || "این محصول"}» ممکن نشد. قیمت‌گذاری‌اش را یک بار دیگر ذخیره کنید.</article>;
+    return this.props.children;
+  }
+}
+
 function Grid({
   items,
   labels,
@@ -771,8 +794,8 @@ function Grid({
   return (
     <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {items.map((product) => (
+        <ProductErrorBoundary key={product.id} name={product.name}>
         <div
-          key={product.id}
           className="min-h-36 rounded-lg border border-oxblood/10 bg-white p-3 text-right shadow-sm transition hover:border-oxblood/45 sm:p-4"
         >
           <div className="flex items-start justify-between gap-2">{admin ? <button type="button" onClick={() => onToggleFeatured?.(product)} className="rounded-full p-1 hover:bg-amber-50" aria-label={product.featured ? "حذف از محصولات برتر" : "افزودن به محصولات برتر"}><Star size={18} className={product.featured ? "fill-amber-400 text-amber-400" : "text-oxblood/30"} /></button> : <Star size={15} className={product.featured ? "fill-amber-400 text-amber-400" : "text-oxblood/20"} />}{admin && onToggleSelect && <input type="checkbox" checked={selectedIds?.includes(product.id) || false} onChange={() => onToggleSelect(product.id)} className="h-5 w-5 accent-oxblood" aria-label={`انتخاب ${product.name}`} />}</div>
@@ -781,12 +804,13 @@ function Grid({
           {product.description && <small className="mt-1 block line-clamp-2 text-[11px] leading-5 text-oxblood-dark/55">{product.description}</small>}
           <span className="mt-1 block text-[11px] text-oxblood-dark/45">{labels[0]}</span>
           {admin && <strong className="mt-4 block text-[11px] font-black text-oxblood">آخرین خرید: {money(latestPurchase(product))}</strong>}
-          {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تاریخ آخرین خرید: {product.invoices[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</small>}
+          {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تاریخ آخرین خرید: {product.invoices?.[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</small>}
           {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تغییر قیمت: {date(product.updated)}</small>}
-          {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">{product.invoices.length} فاکتور</small>}
+          {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">{product.invoices?.length || 0} فاکتور</small>}
           </button>
           {admin && <button type="button" onClick={() => onSelect(product)} className="mt-3 w-full rounded-lg border border-oxblood/20 py-1.5 text-xs font-bold text-oxblood">ویرایش محصول</button>}
         </div>
+        </ProductErrorBoundary>
       ))}
     </div>
   );
@@ -843,7 +867,7 @@ function Admin({
   onCatalogContactChange: (contact: CatalogContact) => void;
   onBrowseMode: (mode: "sections" | "phonebook") => void;
   onAssignCategory: (categoryId: string, ids: number[]) => void;
-  onApplyLevels: (ids: number[], levels: ProductLevel[]) => void;
+  onApplyLevels: (ids: number[], levels: ProductLevel[] | null) => void;
   onAddTask: (event: FormEvent<HTMLFormElement>) => void;
   onToggleTask: (id: number) => void;
   onDeleteTask: (id: number) => void;
@@ -957,7 +981,7 @@ function RoundingSettings({ value, onChange }: { value: PriceRounding; onChange:
 
 function ReportsPanel({ products, categories, importReports, onSelect, onExportCategory, currency }: { products: Product[]; categories: { id: string; name: string }[]; importReports: ImportReport[]; onSelect: (product: Product) => void; onExportCategory: (category: { id: string; name: string }) => void; currency: Currency }) {
   const productsByLatestChange = [...products].sort((a, b) => priceChangeTime(sortedPriceHistory(b.priceHistory)[0]) - priceChangeTime(sortedPriceHistory(a.priceHistory)[0]));
-  return <div className="mt-5 space-y-5"><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش دسته‌بندی‌ها</h2><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => { const items = products.filter((product) => product.categoryIds.includes(category.id)); return <article key={category.id} className="rounded-lg bg-blush p-3"><b>{category.name}</b><span className="mt-2 block text-sm">{items.length.toLocaleString("fa-IR")} محصول</span><small className="mt-1 block text-oxblood-dark/55">{items.filter((item) => item.active).length.toLocaleString("fa-IR")} فعال</small><button type="button" onClick={() => onExportCategory(category)} className="mt-3 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">خروجی اکسل این دسته</button></article>; })}</div>{!categories.length && <p className="mt-3 text-sm text-oxblood-dark/55">هنوز دسته‌ای برای محصولات ساخته نشده است.</p>}</section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش هر محصول</h2><div className="mt-3 space-y-2">{productsByLatestChange.map((product) => { const latestChange = sortedPriceHistory(product.priceHistory)[0]; return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg bg-blush p-3"><div><b>{product.name}</b><small className="mt-1 block text-xs text-oxblood-dark/55">قیمت فعلی: {money(product.price)} {currencyTitle(currency)} · {product.priceHistory.length.toLocaleString("fa-IR")} تغییر قیمت</small><small className="mt-1 block text-xs text-oxblood-dark/45">{latestChange ? `آخرین تغییر: ${dateTime(latestChange.changedAt)}` : "بدون تغییر قیمت"}</small></div><button type="button" onClick={() => onSelect(product)} className="shrink-0 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">گزارش محصول</button></div>; })}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش ورود فایل‌ها</h2>{importReports.length ? <div className="mt-3 space-y-2">{importReports.map((report) => <article key={report.id} className="rounded-lg bg-blush p-3"><b className="block break-all text-sm">{report.fileName}</b><small className="mt-1 block text-xs text-oxblood-dark/55">{dateTime(report.importedAt)}</small><div className="mt-2 flex flex-wrap gap-2 text-xs"><span>جدید: {report.added.toLocaleString("fa-IR")}</span><span>تغییر قیمت: {report.priceChanged.toLocaleString("fa-IR")}</span><span>بدون تغییر: {report.unchanged.toLocaleString("fa-IR")}</span></div></article>)}</div> : <p className="mt-3 text-sm text-oxblood-dark/55">هنوز گزارشی از ورود اکسل محصولات ثبت نشده است.</p>}</section></div>;
+  return <div className="mt-5 space-y-5"><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش دسته‌بندی‌ها</h2><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => { const items = products.filter((product) => hasCategory(product, category.id)); return <article key={category.id} className="rounded-lg bg-blush p-3"><b>{category.name}</b><span className="mt-2 block text-sm">{items.length.toLocaleString("fa-IR")} محصول</span><small className="mt-1 block text-oxblood-dark/55">{items.filter((item) => item.active).length.toLocaleString("fa-IR")} فعال</small><button type="button" onClick={() => onExportCategory(category)} className="mt-3 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">خروجی اکسل این دسته</button></article>; })}</div>{!categories.length && <p className="mt-3 text-sm text-oxblood-dark/55">هنوز دسته‌ای برای محصولات ساخته نشده است.</p>}</section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش هر محصول</h2><div className="mt-3 space-y-2">{productsByLatestChange.map((product) => { const latestChange = sortedPriceHistory(product.priceHistory)[0]; return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg bg-blush p-3"><div><b>{product.name}</b><small className="mt-1 block text-xs text-oxblood-dark/55">قیمت فعلی: {money(product.price)} {currencyTitle(currency)} · {product.priceHistory.length.toLocaleString("fa-IR")} تغییر قیمت</small><small className="mt-1 block text-xs text-oxblood-dark/45">{latestChange ? `آخرین تغییر: ${dateTime(latestChange.changedAt)}` : "بدون تغییر قیمت"}</small></div><button type="button" onClick={() => onSelect(product)} className="shrink-0 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">گزارش محصول</button></div>; })}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش ورود فایل‌ها</h2>{importReports.length ? <div className="mt-3 space-y-2">{importReports.map((report) => <article key={report.id} className="rounded-lg bg-blush p-3"><b className="block break-all text-sm">{report.fileName}</b><small className="mt-1 block text-xs text-oxblood-dark/55">{dateTime(report.importedAt)}</small><div className="mt-2 flex flex-wrap gap-2 text-xs"><span>جدید: {report.added.toLocaleString("fa-IR")}</span><span>تغییر قیمت: {report.priceChanged.toLocaleString("fa-IR")}</span><span>بدون تغییر: {report.unchanged.toLocaleString("fa-IR")}</span></div></article>)}</div> : <p className="mt-3 text-sm text-oxblood-dark/55">هنوز گزارشی از ورود اکسل محصولات ثبت نشده است.</p>}</section></div>;
 }
 
 function CategoryForm({ categories, onChange }: { categories: { id: string; name: string }[]; onChange: (categories: { id: string; name: string }[]) => void }) {
@@ -984,11 +1008,11 @@ function DisplayModeForm({ mode, onChange }: { mode: "sections" | "phonebook"; o
   return <section className="mt-4 rounded-lg border border-oxblood/10 p-4"><h3 className="font-black">نحوه نمایش محصولات</h3><p className="mt-1 text-xs text-oxblood-dark/55">حالت دفترچه‌ای محصولات را براساس حروف الفبا صفحه‌بندی می‌کند.</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => onChange("phonebook")} className={`rounded-lg p-2 text-sm font-bold ${mode === "phonebook" ? "bg-oxblood text-white" : "bg-blush text-oxblood"}`}>دفترچه‌ای (حروف)</button><button type="button" onClick={() => onChange("sections")} className={`rounded-lg p-2 text-sm font-bold ${mode === "sections" ? "bg-oxblood text-white" : "bg-blush text-oxblood"}`}>بخش‌بندی معمولی</button></div></section>;
 }
 
-function BulkPricingSheet({ count, onClose, onApply }: { count: number; onClose: () => void; onApply: (levels: ProductLevel[]) => void }) {
+function BulkPricingSheet({ count, onClose, onApply }: { count: number; onClose: () => void; onApply: (levels: ProductLevel[] | null) => void }) {
   const units = ["بسته", "عدد", "مثقال", "لیتر", "کارتن", "گرم", "کیلوگرم"];
   const [levels, setLevels] = useState<ProductLevel[]>([{ id: "bulk-1", label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }]);
   const update = (index: number, patch: Partial<ProductLevel>) => setLevels(levels.map((level, itemIndex) => itemIndex === index ? { ...level, ...patch } : level));
-  return <div className="fixed inset-0 z-30 flex items-end justify-center"><button onClick={onClose} className="absolute inset-0 bg-oxblood-dark/45" aria-label="بستن"/><section className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-5xl sm:p-8"><button onClick={onClose} className="absolute left-5 top-5 text-oxblood"><X/></button><h2 className="text-2xl font-black">مرحله ۲ · قیمت‌گذاری گروهی</h2><p className="mt-2 text-sm text-oxblood-dark/60">سطح‌های زیر روی {count.toLocaleString("fa-IR")} محصول انتخاب‌شده اعمال می‌شوند.</p><div className="mt-5 rounded-lg border border-oxblood/10 bg-white p-3"><div className="flex items-center justify-between"><h4 className="font-black">سطح‌های قیمت‌گذاری</h4><button type="button" onClick={() => setLevels([...levels, { id: `bulk-${Date.now()}`, label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }])} className="rounded-lg border border-oxblood/20 px-3 py-1.5 text-xs font-bold text-oxblood">+ افزودن سطح</button></div><p className="mt-2 text-xs text-oxblood-dark/55">درصد سود برای هر محصول از قیمت خرید خودش محاسبه می‌شود. وارد کردن قیمت فروش، آن را به‌صورت قیمت ثابت برای همهٔ محصولات اعمال می‌کند.</p><div className="mt-3 space-y-2">{levels.map((level, index) => <div key={level.id} className="grid gap-2 rounded-lg bg-blush p-2 sm:grid-cols-8"><input value={level.label} onChange={(event) => update(index, { label: event.target.value })} placeholder="نام سطح" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.quantity} onChange={(event) => update(index, { quantity: event.target.value })} placeholder="مقدار" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.unit} onChange={(event) => update(index, { unit: event.target.value })} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="" disabled>واحد</option>{units.map((unit) => <option key={unit}>{unit}</option>)}</select><input value={level.percent ?? ""} onChange={(event) => update(index, { percent: event.target.value === "" ? undefined : Number(event.target.value), price: 0 })} placeholder="درصد سود" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.price || ""} onChange={(event) => update(index, { price: parseAmount(event.target.value), percent: undefined })} placeholder="قیمت فروش" type="text" inputMode="numeric" className="rounded border border-oxblood/15 bg-white p-2 text-xs font-bold text-oxblood"/><input value={level.rounding ?? ""} onChange={(event) => update(index, { rounding: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="مبلغ رند" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.roundingMode || "none"} onChange={(event) => update(index, { roundingMode: event.target.value as ProductLevel["roundingMode"] })} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select><button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button></div>)}</div></div><div className="mt-4 flex flex-wrap gap-2"><button disabled={!levels.length} onClick={() => onApply(levels)} className="rounded-lg bg-oxblood px-5 py-2 font-bold text-white disabled:opacity-40">اعمال روی محصولات انتخاب‌شده</button></div></section></div>;
+  return <div className="fixed inset-0 z-30 flex items-end justify-center"><button onClick={onClose} className="absolute inset-0 bg-oxblood-dark/45" aria-label="بستن"/><section className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-5xl sm:p-8"><button onClick={onClose} className="absolute left-5 top-5 text-oxblood"><X/></button><h2 className="text-2xl font-black">مرحله ۲ · قیمت‌گذاری گروهی</h2><p className="mt-2 text-sm text-oxblood-dark/60">سطح‌های زیر روی {count.toLocaleString("fa-IR")} محصول انتخاب‌شده اعمال می‌شوند.</p><div className="mt-5 rounded-lg border border-oxblood/10 bg-white p-3"><div className="flex items-center justify-between"><h4 className="font-black">سطح‌های قیمت‌گذاری</h4><button type="button" onClick={() => setLevels([...levels, { id: `bulk-${Date.now()}`, label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }])} className="rounded-lg border border-oxblood/20 px-3 py-1.5 text-xs font-bold text-oxblood">+ افزودن سطح</button></div><p className="mt-2 text-xs text-oxblood-dark/55">درصد سود برای هر محصول از قیمت خرید خودش محاسبه می‌شود. وارد کردن قیمت فروش، آن را به‌صورت قیمت ثابت برای همهٔ محصولات اعمال می‌کند.</p><div className="mt-3 space-y-2">{levels.map((level, index) => <div key={level.id} className="grid gap-2 rounded-lg bg-blush p-2 sm:grid-cols-8"><input value={level.label} onChange={(event) => update(index, { label: event.target.value })} placeholder="نام سطح" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.quantity} onChange={(event) => update(index, { quantity: event.target.value })} placeholder="مقدار" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.unit} onChange={(event) => update(index, { unit: event.target.value })} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="" disabled>واحد</option>{units.map((unit) => <option key={unit}>{unit}</option>)}</select><input value={level.percent ?? ""} onChange={(event) => update(index, { percent: event.target.value === "" ? undefined : Number(event.target.value), price: 0 })} placeholder="درصد سود" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.price || ""} onChange={(event) => update(index, { price: parseAmount(event.target.value), percent: undefined })} placeholder="قیمت فروش" type="text" inputMode="numeric" className="rounded border border-oxblood/15 bg-white p-2 text-xs font-bold text-oxblood"/><input value={level.rounding ?? ""} onChange={(event) => update(index, { rounding: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="مبلغ رند" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.roundingMode || "none"} onChange={(event) => update(index, { roundingMode: event.target.value as ProductLevel["roundingMode"] })} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select><button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button></div>)}</div></div><div className="mt-4 flex flex-wrap gap-2"><button disabled={!levels.length} onClick={() => onApply(levels)} className="rounded-lg bg-oxblood px-5 py-2 font-bold text-white disabled:opacity-40">اعمال روی محصولات انتخاب‌شده</button><button type="button" onClick={() => onApply(null)} className="rounded-lg border border-oxblood/20 px-5 py-2 font-bold text-oxblood">بازگشت به قیمت پیش‌فرض</button></div></section></div>;
 }
 
 function ColumnLabelForm({
@@ -1192,8 +1216,8 @@ function Catalog({
       {(contact.mobile || contact.phone || contact.address) && <section className="catalog-contact"><div className="catalog-contact-icon">☎</div><div><h2>اطلاعات تماس و سفارش</h2><div>{contact.mobile && <a dir="ltr" href={`tel:${phoneDigits(contact.mobile)}`}>همراه: {contact.mobile}</a>}{contact.phone && <a dir="ltr" href={`tel:${phoneDigits(contact.phone)}`}>ثابت: {contact.phone}</a>}{contact.address && <span>آدرس: {contact.address}</span>}</div></div></section>}
       <div className="catalog-products">
         {products.map((product) => (
+          <ProductErrorBoundary key={product.id} name={product.name}>
           <button
-            key={product.id}
             onClick={() => onSelect(product)}
             className="catalog-product-card"
           >
@@ -1201,12 +1225,13 @@ function Catalog({
             <div className="catalog-product-info"><b>{product.name}</b>
               {product.description && <p>{product.description}</p>}
               <div className="catalog-prices">
-                {capturePricing(product, settings).levels.map((level) => (
-                  <span key={level.id}><small>{level.label}</small><strong>{money(level.finalPrice)}</strong></span>
+                {capturePricing(product, settings).levels.map((level, index) => (
+                  <span key={`${level.id}-${index}`}><small>{level.label}</small><strong>{money(level.finalPrice)}</strong></span>
                 ))}
               </div>
             </div>
           </button>
+          </ProductErrorBoundary>
         ))}
       </div>
       {selectedCategoryId && !products.length && <p className="mt-6 rounded-xl border border-oxblood/10 bg-white p-4 text-sm text-oxblood-dark/55">برای این دسته هنوز محصول فعالی ثبت نشده است. در پنل محصول، تیک دسته‌بندی را بررسی کنید.</p>}
@@ -1233,7 +1258,7 @@ function HistoryPricing({ title, snapshot }: { title: string; snapshot: PricingS
   return <section className="rounded-lg bg-blush p-3">
     <h4 className="font-bold">{title}</h4>
     <p className="mt-1 text-xs">قیمت خرید: {money(snapshot.basePrice)} {currencyTitle(snapshot.currency)}</p>
-    <div className="mt-2 space-y-2">{snapshot.levels.map((level) => <div key={level.id} className="rounded-lg bg-white p-3">
+    <div className="mt-2 space-y-2">{snapshot.levels.map((level, index) => <div key={`${level.id}-${index}`} className="rounded-lg bg-white p-3">
       <b>{level.label}: {money(level.finalPrice)} {currencyTitle(snapshot.currency)}</b>
       <LevelPricingFacts level={level} snapshot={snapshot} />
     </div>)}</div>
@@ -1367,7 +1392,7 @@ function Detail({
                   <button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button>
                 </div>)}</div>
               </div>
-              {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={product.categoryIds.includes(category.id)} onChange={(event) => { void onCategoryChange(category.id, event.target.checked); }} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
+              {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={hasCategory(product, category.id)} onChange={(event) => { void onCategoryChange(category.id, event.target.checked); }} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
               <button type="submit" disabled={savingPricing} className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{savingPricing ? "در حال ذخیره..." : "ثبت اطلاعات"}</button>
               <button type="button" onClick={() => void onDelete()} className="mt-3 mr-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-bold text-red-700">حذف محصول</button>
             </form>

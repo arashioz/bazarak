@@ -76,3 +76,45 @@ test('catalog edits capture previous pricing on the server and preserve legacy h
   await PUT(request({ products: [{ ...stored.products[0], name: 'نام جدید' }], settings: stored.settings }, true, 'catalog'));
   assert.equal(stored.products[0].priceHistory.length, 2);
 });
+
+test('a price edit keeps the rest of the category, even when names match', async () => {
+  const { PUT, request, stored } = databaseRoute();
+  stored.products = [
+    { id: 1, name: 'گلاب', price: 1000, categoryIds: ['araq'], percentages: [12], priceHistory: [] },
+    { id: 2, name: 'گلاب', price: 2000, categoryIds: ['araq'], percentages: [12], priceHistory: [] },
+    { id: 3, name: 'عرق نعنا', price: 3000, categoryIds: ['araq'], percentages: [12], priceHistory: [] },
+  ];
+  const response = await PUT(request({
+    products: [{ ...stored.products[0], price: 1800, levels: [{ id: 'bulk-1', label: 'خرده', unit: 'کیلوگرم', quantity: '۱', price: 0 }] }],
+    settings: stored.settings,
+  }, true, 'catalog'));
+  assert.equal(response.status, 200);
+  assert.deepEqual(stored.products.map((product) => product.id), [1, 2, 3]);
+  assert.deepEqual(stored.products.map((product) => product.categoryIds), [['araq'], ['araq'], ['araq']]);
+  assert.equal(stored.products[0].price, 1800);
+  const walk = (value, found) => {
+    if (value === undefined) found.push(true);
+    else if (Array.isArray(value)) value.forEach((item) => walk(item, found));
+    else if (value && typeof value === 'object' && !(value instanceof Date)) Object.values(value).forEach((item) => walk(item, found));
+  };
+  const undefinedFields = [];
+  walk(stored.products, undefinedFields);
+  assert.deepEqual(undefinedFields, []);
+});
+
+test('clearing custom levels restores default pricing without dropping siblings', async () => {
+  const { PUT, request, stored } = databaseRoute();
+  stored.products = [
+    { id: 1, name: 'گلاب', price: 1000, categoryIds: ['araq'], percentages: [12], levels: [{ id: 'bulk-1', label: '', price: 0 }], priceHistory: [] },
+    { id: 2, name: 'عرق نعنا', price: 3000, categoryIds: ['araq'], percentages: [9], priceHistory: [] },
+  ];
+  const response = await PUT(request({
+    products: [{ id: 1, name: 'گلاب', price: 1000, categoryIds: ['araq'], percentages: [12], levels: [] }],
+    settings: stored.settings,
+  }, true, 'catalog'));
+  assert.equal(response.status, 200);
+  assert.deepEqual(stored.products[0].levels, []);
+  assert.equal(stored.products[0].priceHistory[0].pricing.levels[0].percent, 12);
+  assert.equal(stored.products[1].id, 2);
+  assert.deepEqual(stored.products[1].categoryIds, ['araq']);
+});

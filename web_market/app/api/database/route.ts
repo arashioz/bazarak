@@ -181,30 +181,32 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: "invalid catalog" }, { status: 400 });
       }
       const current = await collection.findOne({ _id: "primary" }, { projection: { products: 1, settings: 1 } });
+      const productKey = (item: Record<string, unknown>) => `id:${String(item.id ?? "")}`;
       const previous = new Map<string, Record<string, unknown>>();
       for (const product of Array.isArray(current?.products) ? current.products : []) {
         const item = product as Record<string, unknown>;
-        previous.set(`id:${String(item.id ?? "")}`, item);
-        previous.set(`name:${String(item.name ?? "").trim()}`, item);
+        previous.set(productKey(item), item);
       }
-      const incomingProductKeys = new Set(catalog.products.flatMap((product) => {
-        const item = product as Record<string, unknown>;
-        return [`id:${String(item.id ?? "")}`, `name:${String(item.name ?? "").trim()}`];
-      }));
+      const incomingProductKeys = new Set(catalog.products.map((product) => productKey(product as Record<string, unknown>)));
       const protectedProducts: Record<string, unknown>[] = catalog.products.map((product) => {
         const item = product as Record<string, unknown>;
-        const old = previous.get(`id:${String(item.id ?? "")}`) || previous.get(`name:${String(item.name ?? "").trim()}`);
+        const old = previous.get(productKey(item));
         const oldCategories = Array.isArray(old?.categoryIds) ? old.categoryIds : [];
         const nextCategories = Array.isArray(item.categoryIds) ? item.categoryIds : [];
         // Imports and stale browser tabs may contain only price/name fields.
         // Keep product metadata that they do not explicitly provide.
+        // An explicit levels array, including an empty one, is intentional:
+        // clearing custom levels restores the default percentage columns.
+        const levels = Object.prototype.hasOwnProperty.call(item, "levels")
+          ? (Array.isArray(item.levels) ? item.levels.filter((level) => level && typeof level === "object") : [])
+          : (Array.isArray(old?.levels) ? old.levels : []);
         return {
           ...old,
           ...item,
           unit: String(item.unit || old?.unit || "کیلوگرم"),
           description: String(item.description || old?.description || ""),
-          categoryIds: [...new Set([...oldCategories, ...nextCategories])],
-          levels: Array.isArray(item.levels) && item.levels.length ? item.levels : old?.levels || [],
+          categoryIds: [...new Set([...oldCategories, ...nextCategories].map((categoryId) => String(categoryId)))],
+          levels,
           percentages: Array.isArray(item.percentages) && item.percentages.length ? item.percentages : old?.percentages || [],
           rounding: Array.isArray(item.rounding) && item.rounding.length ? item.rounding : old?.rounding || [],
           roundingEnabled: Array.isArray(item.roundingEnabled) && item.roundingEnabled.length ? item.roundingEnabled : old?.roundingEnabled || [],
@@ -214,10 +216,11 @@ export async function PUT(request: NextRequest) {
         };
       });
       // The manager UI loads products in pages. Keep untouched pages in MongoDB
-      // when saving an edit from the currently loaded page.
+      // when saving an edit from the currently loaded page. Identity is the
+      // product id; a shared name must not erase the products that were not sent.
       for (const product of Array.isArray(current?.products) ? current.products : []) {
         const item = product as Record<string, unknown>;
-        if (!incomingProductKeys.has(`id:${String(item.id ?? "")}`) && !incomingProductKeys.has(`name:${String(item.name ?? "").trim()}`)) protectedProducts.push(item);
+        if (!incomingProductKeys.has(productKey(item))) protectedProducts.push(item);
       }
       const incomingSettings = catalog.settings as Record<string, unknown>;
       const oldSettings = (current?.settings || {}) as Record<string, unknown>;
@@ -226,7 +229,7 @@ export async function PUT(request: NextRequest) {
       const protectedSettings: Record<string, unknown> = { ...oldSettings, ...incomingSettings, categories: [...new Map([...oldCategories, ...nextCategories].map((category) => [String((category as { id?: unknown }).id ?? ""), category])).values()] };
       const changedAt = new Date().toISOString();
       for (const product of protectedProducts) {
-        const old = previous.get(`id:${String(product.id ?? "")}`) || previous.get(`name:${String(product.name ?? "").trim()}`);
+        const old = previous.get(productKey(product));
         if (old) product.priceHistory = recordPricingChange(old, product, oldSettings, protectedSettings, changedAt);
       }
       await collection.updateOne(
