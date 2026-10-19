@@ -40,6 +40,15 @@ test('captures local rounding, Persian quantities, fixed prices and rial currenc
   assert.equal(pricing.levels[1].percent, undefined);
 });
 
+test('opening a product still prices when labels, levels, or history are damaged', () => {
+  const pricing = capturePricing({ price: '15000', percentages: 'bad', fixedPrices: null, levels: [null, { id: 'ok', label: 'خرده', quantity: '۱', unit: 'عدد', percent: 12, price: 1 }], priceHistory: [null, { previousPrice: 1, price: 2 }] }, { columnLabels: 'خرده', currency: 'toman', priceRounding: 1000 });
+  assert.equal(pricing.levels[0].label, 'خرده');
+  assert.equal(pricing.levels[0].finalPrice, 17000);
+  const history = recordPricingChange({ price: 1000, priceHistory: [null, { previousPrice: 1, price: 2, changedAt: 'old' }] }, { price: 1200, priceHistory: [null] }, settings, settings, 'now');
+  assert.equal(history[1].changedAt, 'old');
+  assert.equal(history.some((entry) => entry == null), false);
+});
+
 test('snapshots saved after a price edit contain no undefined fields', () => {
   const fixed = capturePricing({ price: 0, levels: [
     { id: 'fixed', label: 'ثابت', quantity: '', unit: 'عدد', price: 0 },

@@ -30,7 +30,7 @@ export function levelPriceForBasePrice(basePrice: number, level: ProductLevel): 
 
 export function capturePricing(product: PricingProduct, settings: Settings): PricingSnapshot {
   const basePrice = finiteNumber(product.price);
-  const labels = settings.columnLabels || ["سطح ۱", "سطح ۲", "سطح ۳", "سطح ۴"];
+  const labels = Array.isArray(settings.columnLabels) && settings.columnLabels.length ? settings.columnLabels.map(String) : ["سطح ۱", "سطح ۲", "سطح ۳", "سطح ۴"];
   const customLevels = (product.levels || []).filter((level) => level && typeof level === "object");
   const levels: ProductLevel[] = customLevels.length ? customLevels : labels.map((label, index) => ({
     id: `default-${index}`, label, unit: product.unit || "کیلوگرم", quantity: "۱",
@@ -57,7 +57,7 @@ export function capturePricing(product: PricingProduct, settings: Settings): Pri
 export function recordPricingChange(previous: PricingProduct, next: PricingProduct, before: Settings, after: Settings, changedAt: string): PriceHistory[] {
   const previousPricing = capturePricing(previous, before);
   const pricing = capturePricing(next, after);
-  const history = (previous.priceHistory || []).map((entry) => ({ ...entry, currency: entry.currency || before.currency || "toman" }));
+  const history = (Array.isArray(previous.priceHistory) ? previous.priceHistory : []).flatMap((entry) => entry && typeof entry === "object" ? [{ ...entry, currency: entry.currency || before.currency || "toman" }] : []);
   if (JSON.stringify(previousPricing) === JSON.stringify(pricing)) return history;
   return [{ previousPrice: previousPricing.basePrice, price: pricing.basePrice, changedAt,
     currency: previousPricing.currency, previousPricing, pricing }, ...history];

@@ -66,7 +66,8 @@ const DEFAULT_SETTINGS: AppSettings = { id: "settings", columnLabels: DEFAULT_LA
 const now = () => new Date().toISOString();
 const money = (value: number) => {
   const number = Number(value);
-  return Number.isFinite(number) ? number.toLocaleString("fa-IR") : "—";
+  if (!Number.isFinite(number)) return "—";
+  try { return number.toLocaleString("fa-IR"); } catch { return String(Math.round(number)); }
 };
 const categoryIdsOf = (product: { categoryIds?: unknown }) => Array.isArray(product.categoryIds) ? product.categoryIds.map(String) : [];
 const hasCategory = (product: { categoryIds?: unknown }, id: string) => categoryIdsOf(product).includes(String(id));
@@ -89,10 +90,18 @@ const parsePriceAmount = (value: unknown) => {
     .replace(/[^0-9-]/g, "");
   return Number(normalized) || 0;
 };
-const date = (value: string) =>
-  new Date(value).toLocaleDateString("fa-IR", { year: "numeric", month: "2-digit", day: "2-digit" });
-const dateTime = (value: string) =>
-  new Date(value).toLocaleString("fa-IR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+const formatDate = (value: unknown, withTime = false) => {
+  const parsed = new Date(typeof value === "string" || typeof value === "number" ? value : NaN);
+  if (Number.isNaN(parsed.getTime())) return "ثبت نشده";
+  try {
+    const options: Intl.DateTimeFormatOptions = { year: "numeric", month: "2-digit", day: "2-digit", ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}) };
+    return withTime ? parsed.toLocaleString("fa-IR", options) : parsed.toLocaleDateString("fa-IR", options);
+  } catch {
+    return withTime ? parsed.toISOString().slice(0, 16).replace("T", " ") : parsed.toISOString().slice(0, 10);
+  }
+};
+const date = (value: unknown) => formatDate(value);
+const dateTime = (value: unknown) => formatDate(value, true);
 const priceChangeTime = (change?: PriceHistory) => {
   const value = change ? Date.parse(change.changedAt) : 0;
   return Number.isFinite(value) ? value : 0;
@@ -122,9 +131,11 @@ const normalizeProducts = (raw: unknown): Product[] => {
     const parsedPrice = Number(product.price);
     const price = Number.isFinite(parsedPrice) ? parsedPrice : 0;
     const invoices =
-      (Array.isArray(product.invoices) ? product.invoices : []).map((invoice) =>
-        typeof invoice === "number" ? { price: invoice, registeredAt: updated } : invoice
-      );
+      (Array.isArray(product.invoices) ? product.invoices : []).flatMap((invoice) => {
+        if (typeof invoice === "number") return [{ price: invoice, registeredAt: updated }];
+        if (!invoice || typeof invoice !== "object") return [];
+        return [{ price: Number(invoice.price) || 0, registeredAt: String(invoice.registeredAt || updated) }];
+      });
     const levels = (Array.isArray(product.levels) ? product.levels : [])
       .filter((level) => level && typeof level === "object")
       .map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(price, level) });
@@ -141,11 +152,11 @@ const normalizeProducts = (raw: unknown): Product[] => {
       imageUrl: String(product.imageUrl || ""),
       description: String(product.description || ""),
       invoices,
-      priceHistory: Array.isArray(product.priceHistory) ? product.priceHistory : [],
-      percentages: product.percentages || [12, 9, 6, 0],
-      rounding: product.rounding || [1000, 1000, 1000, 1000],
-      roundingEnabled: product.roundingEnabled || [true, true, true, true],
-      fixedPrices: product.fixedPrices || [],
+      priceHistory: (Array.isArray(product.priceHistory) ? product.priceHistory : []).filter((entry) => entry && typeof entry === "object"),
+      percentages: Array.isArray(product.percentages) ? product.percentages : [12, 9, 6, 0],
+      rounding: Array.isArray(product.rounding) ? product.rounding : [1000, 1000, 1000, 1000],
+      roundingEnabled: Array.isArray(product.roundingEnabled) ? product.roundingEnabled : [true, true, true, true],
+      fixedPrices: Array.isArray(product.fixedPrices) ? product.fixedPrices : [],
       categoryIds: categoryIdsOf(product),
       levels,
     };
@@ -751,9 +762,9 @@ function ProductSections({
 }) {
   const featured = products.filter((product) => product.featured);
   const rest = products.filter((product) => !product.featured);
-  const letters = Array.from(new Set(products.map((product) => product.name.trim().charAt(0)))).filter(Boolean).sort((a, b) => a.localeCompare(b, "fa"));
+  const letters = Array.from(new Set(products.map((product) => String(product.name || "").trim().charAt(0)))).filter(Boolean).sort((a, b) => a.localeCompare(b, "fa"));
   if (mode === "phonebook") {
-    return <><h1 className="text-xl font-black sm:text-2xl">دفترچه محصولات</h1>{featured.length > 0 && <section className="mt-6"><h2 className="text-lg font-black text-oxblood">محصولات برتر</h2><Grid items={featured} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section>}{letters.map((letter) => { const items = products.filter((product) => !product.featured && product.name.trim().startsWith(letter)); return items.length ? <section key={letter} className="mt-8"><h2 className="border-b border-oxblood/15 pb-2 text-2xl font-black text-oxblood">{letter}</h2><Grid items={items} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section> : null; })}</>;
+    return <><h1 className="text-xl font-black sm:text-2xl">دفترچه محصولات</h1>{featured.length > 0 && <section className="mt-6"><h2 className="text-lg font-black text-oxblood">محصولات برتر</h2><Grid items={featured} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section>}{letters.map((letter) => { const items = products.filter((product) => !product.featured && String(product.name || "").trim().startsWith(letter)); return items.length ? <section key={letter} className="mt-8"><h2 className="border-b border-oxblood/15 pb-2 text-2xl font-black text-oxblood">{letter}</h2><Grid items={items} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section> : null; })}</>;
   }
   return (
     <>
@@ -802,7 +813,7 @@ function Grid({
           <button onClick={() => onSelect(product)} className="w-full text-right">
           <b className="mt-4 block text-sm font-black leading-6 sm:text-base">{product.name}</b>
           {product.description && <small className="mt-1 block line-clamp-2 text-[11px] leading-5 text-oxblood-dark/55">{product.description}</small>}
-          <span className="mt-1 block text-[11px] text-oxblood-dark/45">{labels[0]}</span>
+          <span className="mt-1 block text-[11px] text-oxblood-dark/45">{labels?.[0]}</span>
           {admin && <strong className="mt-4 block text-[11px] font-black text-oxblood">آخرین خرید: {money(latestPurchase(product))}</strong>}
           {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تاریخ آخرین خرید: {product.invoices?.[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</small>}
           {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تغییر قیمت: {date(product.updated)}</small>}
@@ -1255,10 +1266,11 @@ function LevelPricingFacts({ level, snapshot }: { level: PricingLevelSnapshot; s
 }
 
 function HistoryPricing({ title, snapshot }: { title: string; snapshot: PricingSnapshot }) {
+  const levels = (Array.isArray(snapshot?.levels) ? snapshot.levels : []).filter((level) => level && typeof level === "object");
   return <section className="rounded-lg bg-blush p-3">
     <h4 className="font-bold">{title}</h4>
-    <p className="mt-1 text-xs">قیمت خرید: {money(snapshot.basePrice)} {currencyTitle(snapshot.currency)}</p>
-    <div className="mt-2 space-y-2">{snapshot.levels.map((level, index) => <div key={`${level.id}-${index}`} className="rounded-lg bg-white p-3">
+    <p className="mt-1 text-xs">قیمت خرید: {money(snapshot?.basePrice)} {currencyTitle(snapshot?.currency)}</p>
+    <div className="mt-2 space-y-2">{levels.map((level, index) => <div key={`${level?.id || index}-${index}`} className="rounded-lg bg-white p-3">
       <b>{level.label}: {money(level.finalPrice)} {currencyTitle(snapshot.currency)}</b>
       <LevelPricingFacts level={level} snapshot={snapshot} />
     </div>)}</div>
@@ -1266,7 +1278,10 @@ function HistoryPricing({ title, snapshot }: { title: string; snapshot: PricingS
 }
 
 function historyExportText(change: PriceHistory, fallbackCurrency: Currency) {
-  const snapshotText = (snapshot: PricingSnapshot) => `خرید: ${money(snapshot.basePrice)} ${currencyTitle(snapshot.currency)} | ${snapshot.levels.map((level) => `${level.label}: ${money(level.finalPrice)} ${currencyTitle(snapshot.currency)}؛ ${level.percent === undefined ? "قیمت ثابت" : `سود ${money(level.percent)}٪`}؛ قبل از رند ${money(level.exactPrice)}؛ ${roundingDescription(level, snapshot)}؛ سود پس از رند ${level.effectivePercent === undefined ? "—" : `${money(level.effectivePercent)}٪`}`).join(" | ")}`;
+  const snapshotText = (snapshot: PricingSnapshot) => {
+    const levels = (Array.isArray(snapshot?.levels) ? snapshot.levels : []).filter((level) => level && typeof level === "object");
+    return `خرید: ${money(snapshot?.basePrice)} ${currencyTitle(snapshot?.currency)} | ${levels.map((level) => `${level.label}: ${money(level.finalPrice)} ${currencyTitle(snapshot.currency)}؛ ${level.percent === undefined ? "قیمت ثابت" : `سود ${money(level.percent)}٪`}؛ قبل از رند ${money(level.exactPrice)}؛ ${roundingDescription(level, snapshot)}؛ سود پس از رند ${level.effectivePercent === undefined ? "—" : `${money(level.effectivePercent)}٪`}`).join(" | ")}`;
+  };
   return change.previousPricing && change.pricing
     ? `${dateTime(change.changedAt)} | قبل: ${snapshotText(change.previousPricing)} | بعد: ${snapshotText(change.pricing)}`
     : `${dateTime(change.changedAt)} | خرید: ${money(change.previousPrice)} ← ${money(change.price)} ${currencyTitle(change.currency || fallbackCurrency)} | درصد و رند قبلی ثبت نشده`;
@@ -1304,9 +1319,12 @@ function Detail({
   const units = ["بسته", "عدد", "مثقال", "لیتر", "کارتن", "گرم", "کیلوگرم"];
   const [customUnit, setCustomUnit] = useState(!units.includes(product.unit));
   const [selectedUnit, setSelectedUnit] = useState(units.includes(product.unit) ? product.unit : "__custom__");
-  const [levels, setLevels] = useState<ProductLevel[]>(capturePricing(product, settings).levels);
+  const [levels, setLevels] = useState<ProductLevel[]>(() => capturePricing(product, settings).levels);
   useEffect(() => {
-    setLevels((current) => current.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(product.price, level) }));
+    setLevels((current) => (Array.isArray(current) ? current : []).flatMap((level) => {
+      if (!level || typeof level !== "object") return [];
+      return [level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(product.price, level) }];
+    }));
   }, [product.price]);
   const currentPricing = capturePricing(product, settings);
   const levelBasePrice = (level: ProductLevel) => latestPurchase(product) * (parseAmount(level.quantity) || 1);
@@ -1340,7 +1358,7 @@ function Detail({
           <CalendarDays size={14} />
           تاریخ ثبت تغییر قیمت: {date(product.updated)}
         </p>
-        <p className="mt-1 flex items-center gap-2 text-xs text-oxblood-dark/45"><CalendarDays size={14} />تاریخ ثبت آخرین فاکتور: {product.invoices[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</p>
+        <p className="mt-1 flex items-center gap-2 text-xs text-oxblood-dark/45"><CalendarDays size={14} />تاریخ ثبت آخرین فاکتور: {product.invoices?.[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</p>
         {product.catalogUrl && (
           <a
             href={product.catalogUrl}
@@ -1354,8 +1372,8 @@ function Detail({
           </a>
         )}
         <div className="mt-5 grid gap-2 sm:grid-cols-3">
-          {currentPricing.levels.map((level) => (
-            <div key={level.id} className="rounded-lg border border-oxblood/10 bg-blush p-3 text-center">
+          {currentPricing.levels.map((level, index) => (
+            <div key={`${level.id}-${index}`} className="rounded-lg border border-oxblood/10 bg-blush p-3 text-center">
               <b className="block text-sm">{level.label}</b>
               <strong className="mt-3 block text-lg font-black text-oxblood">{money(level.finalPrice)} {currencyTitle(settings.currency)}</strong>
               {admin && <LevelPricingFacts level={level} snapshot={currentPricing} />}
@@ -1392,7 +1410,7 @@ function Detail({
                   <button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button>
                 </div>)}</div>
               </div>
-              {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={hasCategory(product, category.id)} onChange={(event) => { void onCategoryChange(category.id, event.target.checked); }} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
+              {!!categories?.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={hasCategory(product, category.id)} onChange={(event) => { void onCategoryChange(category.id, event.target.checked); }} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
               <button type="submit" disabled={savingPricing} className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{savingPricing ? "در حال ذخیره..." : "ثبت اطلاعات"}</button>
               <button type="button" onClick={() => void onDelete()} className="mt-3 mr-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-bold text-red-700">حذف محصول</button>
             </form>
@@ -1402,7 +1420,7 @@ function Detail({
               فاکتورهای خرید
             </h3>
             <ul className="mt-3 space-y-2 text-sm">
-              {product.invoices.map((invoice, index) => (
+              {(product.invoices || []).map((invoice, index) => (
                 <li key={index} className="rounded-lg border border-oxblood/10 p-3">
                   <span className="font-black text-oxblood">{money(invoice.price)} {currencyTitle(settings.currency)}</span>
                   <span className="mt-1 block text-xs text-oxblood-dark/45">
@@ -1415,11 +1433,11 @@ function Detail({
               <CalendarDays size={18} />
               تاریخچه تغییر قیمت
             </h3>
-            {product.priceHistory.length ? <ul className="mt-3 space-y-2 text-sm">
-              {sortedPriceHistory(product.priceHistory).map((change, index) => (
+            {(product.priceHistory || []).length ? <ul className="mt-3 space-y-2 text-sm">
+              {sortedPriceHistory(product.priceHistory || []).map((change, index) => (
                 <li key={`${change.changedAt}-${index}`} className="rounded-lg border border-oxblood/10 p-3">
                   <span className="mt-1 block text-xs text-oxblood-dark/45">{dateTime(change.changedAt)}</span>
-                  {change.previousPricing && change.pricing ? <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {change.previousPricing?.levels && change.pricing?.levels ? <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <HistoryPricing title="قبل از تغییر" snapshot={change.previousPricing} />
                     <HistoryPricing title="بعد از تغییر" snapshot={change.pricing} />
                   </div> : <>
