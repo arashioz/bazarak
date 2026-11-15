@@ -1,5 +1,6 @@
  import { NextRequest, NextResponse } from "next/server";
  import { mongoDatabase } from "@/lib/mongodb";
+ import { cacheGet, cacheSet, cacheInvalidate } from "@/lib/redis";
  import { MAP_ADMIN_COOKIE, MAP_DRIVER_COOKIE, isValidMapToken, getMapRole } from "@/app/lib/auth-map-utils";
  
  export async function GET(request: NextRequest) {
@@ -10,16 +11,20 @@
    }
  
    try {
+     const typeQuery = request.nextUrl.searchParams.get("type");
+     const scope = `map:customers:${typeQuery || "all"}`;
+     const cached = await cacheGet<unknown[]>(scope);
+     if (cached.hit && Array.isArray(cached.value)) return NextResponse.json(cached.value);
      const db = await mongoDatabase();
      const collection = db.collection("map_crm_customers");
      
-     const typeQuery = request.nextUrl.searchParams.get("type");
      const filter: any = {};
      if (typeQuery) {
        filter.type = typeQuery; // "mobile-service" or "furniture"
      }
  
      const customers = await collection.find(filter).toArray();
+     await cacheSet(scope, customers);
      return NextResponse.json(customers);
    } catch (error) {
      return NextResponse.json({ error: "failed to fetch customers" }, { status: 500 });
@@ -61,6 +66,7 @@
      } else {
         await collection.insertOne(customerData);
      }
+     await cacheInvalidate();
  
      return NextResponse.json({ ok: true });
    } catch (error) {
@@ -68,3 +74,4 @@
      return NextResponse.json({ error: "failed to save customer" }, { status: 500 });
    }
  }
+

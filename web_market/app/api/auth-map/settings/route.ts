@@ -1,5 +1,6 @@
  import { NextRequest, NextResponse } from "next/server";
  import { mongoDatabase } from "@/lib/mongodb";
+ import { cacheGet, cacheSet, cacheInvalidate } from "@/lib/redis";
  import { MAP_ADMIN_COOKIE, isValidMapToken } from "@/app/lib/auth-map-utils";
  
  export async function GET(request: NextRequest) {
@@ -8,10 +9,13 @@
    }
  
    try {
+     const cached = await cacheGet<Record<string, unknown>>("map:settings");
+     if (cached.hit && cached.value) return NextResponse.json(cached.value);
      const db = await mongoDatabase();
      // We use a separate collection for settings to keep it clean
-     const settings = await db.collection<{ _id: string; defaultCity?: string }>("map_crm_settings").findOne({ _id: "primary_settings" });
-     return NextResponse.json(settings || { defaultCity: "" });
+     const settings = (await db.collection<{ _id: string; defaultCity?: string }>("map_crm_settings").findOne({ _id: "primary_settings" })) || { defaultCity: "" };
+     await cacheSet("map:settings", settings);
+     return NextResponse.json(settings);
    } catch (error) {
      return NextResponse.json({ error: "failed to fetch settings" }, { status: 500 });
    }
@@ -31,9 +35,11 @@
        { $set: { ...data, updatedAt: new Date() } },
        { upsert: true }
      );
+     await cacheInvalidate();
  
      return NextResponse.json({ ok: true });
    } catch (error) {
      return NextResponse.json({ error: "failed to update settings" }, { status: 500 });
    }
  }
+

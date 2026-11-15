@@ -83,7 +83,7 @@ export default function CustomersApp() {
     categories: [],
     assignments: {},
   });
-  const [categoryFilter, setCategoryFilter] = useState("");
+  // const [categoryFilter, setCategoryFilter] = useState(""); // Hidden
   const [showSettings, setShowSettings] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -151,14 +151,12 @@ export default function CustomersApp() {
     const term = query.trim();
     return customers.filter(
       (customer) =>
-        (!term ||
-          `${customer.name} ${customer.group} ${customer.mobile} ${customer.phone}`.includes(
-            term,
-          )) &&
-        (!categoryFilter ||
-          customerSettings.assignments[customer.id] === categoryFilter),
+        !term ||
+        `${customer.name} ${customer.group} ${customer.mobile} ${customer.phone}`.includes(
+          term,
+        )
     );
-  }, [customers, query, categoryFilter, customerSettings]);
+  }, [customers, query]);
   const toggleSelection = (id: number) =>
     setSelectedIds((ids) =>
       ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id],
@@ -310,10 +308,6 @@ export default function CustomersApp() {
           </div>
         </header>
         <div className="mt-5">
-          <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-            <button type="button" onClick={() => setCategoryFilter("")} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${!categoryFilter ? "bg-oxblood text-white" : "bg-white text-oxblood ring-1 ring-oxblood/15"}`}>همهٔ مشتریان</button>
-            {customerSettings.categories.map((category) => <button type="button" key={category.id} onClick={() => setCategoryFilter(category.id)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${categoryFilter === category.id ? "bg-oxblood text-white" : "bg-white text-oxblood ring-1 ring-oxblood/15"}`}>{category.name}</button>)}
-          </div>
           <div className="relative">
             <Search
               className="absolute right-3 top-3 text-oxblood/45"

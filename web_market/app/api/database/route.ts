@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mongoDatabase } from "@/lib/mongodb";
+import { cacheGet, cacheSet, cacheInvalidate } from "@/lib/redis";
 import { ADMIN_COOKIE, isValidAdminToken } from "@/app/lib/auth";
 
 export const runtime = "nodejs";
@@ -19,6 +20,14 @@ const readDatabase = async () => {
   throw new Error("MongoDB data has not been initialized");
 };
 
+const cachedReadDatabase = async () => {
+  const cached = await cacheGet<Database>("db:full");
+  if (cached.hit && cached.value) return cached.value;
+  const database = await readDatabase();
+  await cacheSet("db:full", database);
+  return database;
+};
+
 export async function GET(request: NextRequest) {
   try {
     // The catalog has its own public, read-only endpoint. All database data is
@@ -28,24 +37,33 @@ export async function GET(request: NextRequest) {
     }
     const section = request.nextUrl.searchParams.get("section");
     if (section === "meta") {
+      const cached = await cacheGet<Database>("db:meta");
+      if (cached.hit && cached.value) return NextResponse.json(cached.value);
       const stored = await (await mongoDatabase()).collection<DatabaseDocument>("appState").findOne(
         { _id: "primary" },
         { projection: { settings: 1, tasks: 1 } },
       );
       if (!stored) throw new Error("MongoDB data has not been initialized");
-      return NextResponse.json({ settings: stored.settings, tasks: stored.tasks });
+      const meta = { settings: stored.settings, tasks: stored.tasks };
+      await cacheSet("db:meta", meta);
+      return NextResponse.json(meta);
     }
     if (section === "products" || section === "customers") {
       const offset = Math.max(0, Number.parseInt(request.nextUrl.searchParams.get("offset") || "0", 10) || 0);
       const limit = Math.min(2500, Math.max(1, Number.parseInt(request.nextUrl.searchParams.get("limit") || "200", 10) || 200));
+      const pageScope = `db:page:${section}:${offset}:${limit}`;
+      const cached = await cacheGet<{ items: unknown[]; offset: number; limit: number; total: number; hasMore: boolean }>(pageScope);
+      if (cached.hit && cached.value) return NextResponse.json(cached.value);
       const [page] = await (await mongoDatabase()).collection<DatabaseDocument>("appState").aggregate<{ items: unknown[]; total: number }>([
         { $match: { _id: "primary" } },
         { $project: { items: { $slice: [`$${section}`, offset, limit] }, total: { $size: { $ifNull: [`$${section}`, []] } } } },
       ]).toArray();
       if (!page) throw new Error("MongoDB data has not been initialized");
-      return NextResponse.json({ items: page.items, offset, limit, total: page.total, hasMore: offset + page.items.length < page.total });
+      const response = { items: page.items, offset, limit, total: page.total, hasMore: offset + page.items.length < page.total };
+      await cacheSet(pageScope, response);
+      return NextResponse.json(response);
     }
-    return NextResponse.json(await readDatabase());
+    return NextResponse.json(await cachedReadDatabase());
   } catch {
     return NextResponse.json({ error: "database unavailable" }, { status: 500 });
   }
@@ -61,6 +79,10 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "invalid database section" }, { status: 400 });
     }
     const collection = (await mongoDatabase()).collection<DatabaseDocument>("appState");
+    // Every successful write below mutates the shared appState document. Bump
+    // the cache revision up-front so all readers pick up fresh data on the
+    // next request; the read at the end of this handler also bypasses cache.
+    await cacheInvalidate();
     if (section === "customerFollowUp") {
       const followUp = data as { customerId?: number; date?: string; note?: string };
       if (!followUp.customerId || !String(followUp.note || "").trim()) return NextResponse.json({ error: "invalid follow-up" }, { status: 400 });

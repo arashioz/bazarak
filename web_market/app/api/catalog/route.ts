@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mongoDatabase } from "@/lib/mongodb";
+import { cacheGet, cacheSet } from "@/lib/redis";
 
 export const runtime = "nodejs";
 
 type StoredProduct = Record<string, unknown> & { categoryIds?: unknown; active?: unknown };
 type StoredSettings = Record<string, unknown> & { categories?: unknown[] };
 type CatalogDocument = Record<string, unknown> & { _id: string };
+type CatalogPayload = { products: unknown[]; settings: Record<string, unknown>; categoryFound: boolean };
 
 export async function GET(request: NextRequest) {
   try {
     const requestedCategoryId = request.nextUrl.searchParams.get("category")?.trim() || "";
+    const scope = `catalog:${requestedCategoryId || "all"}`;
+    const cached = await cacheGet<CatalogPayload>(scope);
+    if (cached.hit && cached.value) return NextResponse.json(cached.value);
     const database = await (await mongoDatabase()).collection<CatalogDocument>("appState").findOne(
       { _id: "primary" },
       { projection: { products: 1, settings: 1 } },
@@ -29,7 +34,7 @@ export async function GET(request: NextRequest) {
         return publicProduct;
       });
 
-    return NextResponse.json({
+    const payload: CatalogPayload = {
       products: categoryExists ? products : [],
       settings: {
         id: "settings",
@@ -39,8 +44,11 @@ export async function GET(request: NextRequest) {
         currency: settings.currency || "toman",
       },
       categoryFound: categoryExists,
-    });
+    };
+    await cacheSet(scope, payload);
+    return NextResponse.json(payload);
   } catch {
     return NextResponse.json({ error: "catalog unavailable" }, { status: 500 });
   }
 }
+
