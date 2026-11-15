@@ -315,7 +315,6 @@ export default function MobileServicesApp() {
             >
               پنل مدیریت
             </Link>
-            <button type="button" onClick={() => { void fetch("/api/auth/logout", { method: "POST" }).finally(() => window.location.assign("/modir/login")); }} className="rounded-lg border border-oxblood/15 bg-white px-3 py-2 text-sm font-bold">خروج</button>
           </nav>
         </header>
         {unpaid.length > 0 && (

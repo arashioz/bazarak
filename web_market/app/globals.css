@@ -27,13 +27,6 @@
   -webkit-overflow-scrolling: touch;
 }
 
-@font-face {
-  font-family: "Vazirmatn";
-  src: url("/fonts/Vazirmatn.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
 
 * {
   box-sizing: border-box;
@@ -43,13 +36,13 @@ body {
   margin: 0;
   background: #fff7f7;
   color: #2f1014;
-  font-family: "Vazirmatn", Tahoma, Arial, sans-serif;
+  font-family: var(--font-estedad), Tahoma, Arial, sans-serif;
 }
 
 /* Catalog links open as standalone public pages, so enforce the app font there too. */
 .catalog-page,
 .catalog-page * {
-  font-family: "Vazirmatn", Tahoma, Arial, sans-serif;
+  font-family: var(--font-estedad), Tahoma, Arial, sans-serif;
 }
 
 .catalog-page { max-width: 1120px; margin: 0 auto; padding: .75rem 0 2rem; }
@@ -242,3 +235,19 @@ textarea:focus {
 .api-loading-orbit i { position: absolute; width: 9px; height: 9px; border-radius: 999px; background: #ffe4a5; box-shadow: 0 0 14px #ffe4a5; }
 .api-loading-orbit i:nth-child(1) { top: 0; right: 12px; }.api-loading-orbit i:nth-child(2) { bottom: 2px; right: 0; }.api-loading-orbit i:nth-child(3) { bottom: 2px; left: 0; }
 @keyframes api-loading-spin { to { transform: rotate(360deg); } }
+
+body { -webkit-font-smoothing: antialiased; line-height: 1.75; }
+button, input, select, textarea { font-family: inherit; }
+.brand-logo { display: inline-flex; align-items: center; gap: .7rem; color: #7f2130; }
+.brand-logo-mark { width: 2.75rem; height: 2.75rem; flex-shrink: 0; }
+.brand-logo-name { font-size: 1.8rem; font-weight: 850; line-height: 1.5; }
+.brand-logo--inverted { color: #fff6ed; }
+.brand-logo--inverted .brand-logo-mark { color: #a34252; }
+.app-credit { padding: .8rem 1rem; text-align: center; color: #896c71; background: #fff7f7; font-size: 10px; }
+@media (max-width: 639px) { body:has(nav.fixed.bottom-0) .app-credit { padding-bottom: calc(5rem + env(safe-area-inset-bottom)); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+@media (max-width: 639px) {
+  .catalog-hero { flex-wrap: wrap; padding: 1.1rem; }
+  .catalog-hero > .brand-logo { flex-basis: 100%; }
+}

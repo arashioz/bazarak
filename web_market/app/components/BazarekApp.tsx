@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowRight,
   BookOpen,
   CalendarDays,
   Check,
@@ -21,8 +20,15 @@ import {
   Upload,
   X,
 } from "lucide-react";
+<<<<<<< HEAD
 import * as XLSX from "xlsx";
 import { Dispatch, FormEvent, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
+=======
+import BrandLogo from "./BrandLogo";
+import { capturePricing, levelPriceForBasePrice, type ProductLevel, type PriceHistory, type PricingSnapshot, type PricingLevelSnapshot } from "@/app/lib/price-history";
+import { roundSalePrice, type PriceRounding } from "@/app/lib/pricing";
+import { Component, FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+>>>>>>> refs/remotes/origin/main
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import CustomerDrawer from "./CustomerDrawer";
@@ -30,8 +36,6 @@ import { confirmDelete } from "@/app/lib/confirm-delete";
 import MobileBottomNav from "./MobileBottomNav";
 
 type Invoice = { price: number; registeredAt: string };
-type PriceHistory = { previousPrice: number; price: number; changedAt: string };
-type ProductLevel = { id: string; label: string; unit: string; quantity: string; price: number; percent?: number; rounding?: number; roundingMode?: "up" | "down" | "none" };
 type ImportReport = { id: string; fileName: string; importedAt: string; added: number; priceChanged: number; unchanged: number };
 type Product = {
   id: number;
@@ -56,7 +60,7 @@ type Product = {
 };
 type Currency = "toman" | "rial";
 type CatalogContact = { mobile?: string; phone?: string; address?: string };
-type AppSettings = { id: "settings"; columnLabels: string[]; categories: { id: string; name: string }[]; browseMode?: "sections" | "phonebook"; importReports?: ImportReport[]; currency?: Currency; catalogContact?: CatalogContact };
+type AppSettings = { id: "settings"; columnLabels: string[]; categories: { id: string; name: string }[]; browseMode?: "sections" | "phonebook"; importReports?: ImportReport[]; currency?: Currency; catalogContact?: CatalogContact; priceRounding?: PriceRounding };
 type Task = { id: number; text: string; done: boolean };
 type View = "landing" | "user" | "login" | "admin" | "catalog";
 type AdminTab = "products" | "tasks" | "reports";
@@ -65,7 +69,13 @@ const DEFAULT_LABELS = ["سطح ۱", "سطح ۲", "سطح ۳", "سطح ۴"];
 const DEFAULT_SETTINGS: AppSettings = { id: "settings", columnLabels: DEFAULT_LABELS, categories: [], browseMode: "sections", currency: "toman" };
 
 const now = () => new Date().toISOString();
-const money = (value: number) => value.toLocaleString("fa-IR");
+const money = (value: number) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  try { return number.toLocaleString("fa-IR"); } catch { return String(Math.round(number)); }
+};
+const categoryIdsOf = (product: { categoryIds?: unknown }) => Array.isArray(product.categoryIds) ? product.categoryIds.map(String) : [];
+const hasCategory = (product: { categoryIds?: unknown }, id: string) => categoryIdsOf(product).includes(String(id));
 const phoneDigits = (value: string) => value.replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace(/\D/g, "");
 const categoryId = (value: unknown) => { try { return decodeURIComponent(String(value ?? "")).trim(); } catch { return String(value ?? "").trim(); } };
 const latestPurchase = (product: Product) => product.price;
@@ -85,10 +95,18 @@ const parsePriceAmount = (value: unknown) => {
     .replace(/[^0-9-]/g, "");
   return Number(normalized) || 0;
 };
-const date = (value: string) =>
-  new Date(value).toLocaleDateString("fa-IR", { year: "numeric", month: "2-digit", day: "2-digit" });
-const dateTime = (value: string) =>
-  new Date(value).toLocaleString("fa-IR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+const formatDate = (value: unknown, withTime = false) => {
+  const parsed = new Date(typeof value === "string" || typeof value === "number" ? value : NaN);
+  if (Number.isNaN(parsed.getTime())) return "ثبت نشده";
+  try {
+    const options: Intl.DateTimeFormatOptions = { year: "numeric", month: "2-digit", day: "2-digit", ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}) };
+    return withTime ? parsed.toLocaleString("fa-IR", options) : parsed.toLocaleDateString("fa-IR", options);
+  } catch {
+    return withTime ? parsed.toISOString().slice(0, 16).replace("T", " ") : parsed.toISOString().slice(0, 10);
+  }
+};
+const date = (value: unknown) => formatDate(value);
+const dateTime = (value: unknown) => formatDate(value, true);
 const priceChangeTime = (change?: PriceHistory) => {
   const value = change ? Date.parse(change.changedAt) : 0;
   return Number.isFinite(value) ? value : 0;
@@ -96,22 +114,15 @@ const priceChangeTime = (change?: PriceHistory) => {
 const sortedPriceHistory = (history: PriceHistory[]) => [...history].sort((a, b) => priceChangeTime(b) - priceChangeTime(a));
 const sale = (product: Product, index: number) => {
   if (product.fixedPrices[index] > 0) return product.fixedPrices[index];
-  const exact = product.price * (1 + product.percentages[index] / 100);
+  const exact = product.price * (1 + (product.percentages[index] ?? 0) / 100);
   return Math.round(exact);
 };
-const levelPriceForBasePrice = (basePrice: number, level: ProductLevel) => {
-  if (level.percent === undefined) return level.price;
-  const exact = basePrice * (parseAmount(level.quantity) || 1) * (1 + level.percent / 100);
-  const rounding = Math.max(1, level.rounding || 1);
-  return level.roundingMode === "up" ? Math.ceil(exact / rounding) * rounding : level.roundingMode === "down" ? Math.floor(exact / rounding) * rounding : Math.round(exact);
-};
-const levelPrice = (_product: Product, level: ProductLevel) => level.price;
 const currencyTitle = (currency: Currency = "toman") => currency === "rial" ? "ریال" : "تومان";
 const convertProductCurrency = (product: Product, factor: number): Product => ({
   ...product,
   price: Math.round(product.price * factor),
   invoices: product.invoices.map((invoice) => ({ ...invoice, price: Math.round(invoice.price * factor) })),
-  priceHistory: product.priceHistory.map((change) => ({ ...change, previousPrice: Math.round(change.previousPrice * factor), price: Math.round(change.price * factor) })),
+  priceHistory: product.priceHistory,
   fixedPrices: product.fixedPrices.map((price) => Math.round(price * factor)),
   rounding: product.rounding.map((price) => Math.round(price * factor)),
   levels: product.levels?.map((level) => ({ ...level, price: Math.round(level.price * factor), rounding: level.rounding === undefined ? undefined : Math.round(level.rounding * factor) })),
@@ -122,14 +133,17 @@ const normalizeProducts = (raw: unknown): Product[] => {
   return raw.map((item) => {
     const product = item as Partial<Product> & { invoices?: Array<number | Invoice>; priceHistory?: PriceHistory[] };
     const updated = product.updated || now();
-    const price = Number(product.price || 0);
+    const parsedPrice = Number(product.price);
+    const price = Number.isFinite(parsedPrice) ? parsedPrice : 0;
     const invoices =
-      product.invoices?.map((invoice) =>
-        typeof invoice === "number" ? { price: invoice, registeredAt: updated } : invoice
-      ) || [];
-    const levels = Array.isArray(product.levels)
-      ? product.levels.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(price, level) })
-      : [];
+      (Array.isArray(product.invoices) ? product.invoices : []).flatMap((invoice) => {
+        if (typeof invoice === "number") return [{ price: invoice, registeredAt: updated }];
+        if (!invoice || typeof invoice !== "object") return [];
+        return [{ price: Number(invoice.price) || 0, registeredAt: String(invoice.registeredAt || updated) }];
+      });
+    const levels = (Array.isArray(product.levels) ? product.levels : [])
+      .filter((level) => level && typeof level === "object")
+      .map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(price, level) });
     return {
       id: Number(product.id || Date.now()),
       name: String(product.name || "محصول"),
@@ -143,12 +157,12 @@ const normalizeProducts = (raw: unknown): Product[] => {
       imageUrl: String(product.imageUrl || ""),
       description: String(product.description || ""),
       invoices,
-      priceHistory: Array.isArray(product.priceHistory) ? product.priceHistory : [],
-      percentages: product.percentages || [12, 9, 6, 0],
-      rounding: product.rounding || [1000, 1000, 1000, 1000],
-      roundingEnabled: product.roundingEnabled || [true, true, true, true],
-      fixedPrices: product.fixedPrices || [],
-      categoryIds: product.categoryIds || [],
+      priceHistory: (Array.isArray(product.priceHistory) ? product.priceHistory : []).filter((entry) => entry && typeof entry === "object"),
+      percentages: Array.isArray(product.percentages) ? product.percentages : [12, 9, 6, 0],
+      rounding: Array.isArray(product.rounding) ? product.rounding : [1000, 1000, 1000, 1000],
+      roundingEnabled: Array.isArray(product.roundingEnabled) ? product.roundingEnabled : [true, true, true, true],
+      fixedPrices: Array.isArray(product.fixedPrices) ? product.fixedPrices : [],
+      categoryIds: categoryIdsOf(product),
       levels,
     };
   });
@@ -171,10 +185,12 @@ const recoverCategories = (settings: AppSettings, products: Product[]): AppSetti
 };
 
 const readMongoDatabase = async () => {
-  const metaResponse = await fetch("/api/database?section=meta", { cache: "no-store" });
+  const [metaResponse, response] = await Promise.all([
+    fetch("/api/database?section=meta", { cache: "no-store" }),
+    fetch("/api/database?section=products&offset=0&limit=2500", { cache: "no-store" }),
+  ]);
   if (!metaResponse.ok) throw new Error("database unavailable");
   const metadata = await metaResponse.json() as Omit<ServerDatabase, "products">;
-  const response = await fetch("/api/database?section=products&offset=0&limit=2500", { cache: "no-store" });
   if (!response.ok) throw new Error("database unavailable");
   const page = await response.json() as { items?: unknown[]; hasMore?: boolean };
   const products = Array.isArray(page.items) ? page.items : [];
@@ -188,27 +204,27 @@ const readCatalog = async (categoryId: string | null) => {
   return response.json() as Promise<CatalogDatabase>;
 };
 
-let databaseWriteQueue = Promise.resolve();
-const saveMongoSection = (section: "products" | "settings" | "catalog" | "productCategory" | "tasks", data: unknown) => {
+let databaseWriteQueue: Promise<unknown> = Promise.resolve();
+const saveMongoSection = (section: "products" | "settings" | "catalog" | "productCategory" | "tasks" | "priceRounding" | "bulkLevels", data: unknown) => {
   databaseWriteQueue = databaseWriteQueue.catch(() => undefined).then(async () => {
     const response = await fetch("/api/database", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ section, data }) });
     if (!response.ok) throw new Error("database update failed");
+    return response.json();
   });
-  return databaseWriteQueue;
+  return databaseWriteQueue as Promise<ServerDatabase>;
 };
 
 export default function BazarekApp({ initialView }: { initialView: View }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const [view, setView] = useState<View>(initialView);
+  const view = initialView;
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const productsRef = useRef<Product[]>([]);
   const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [databaseLoaded, setDatabaseLoaded] = useState(false);
-  const [showIntro, setShowIntro] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
@@ -219,10 +235,18 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   const [selectedReportColumns, setSelectedReportColumns] = useState<string[]>(["نام محصول", "قیمت خرید فعلی"]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [productsPage, setProductsPage] = useState({ hasMore: false, nextOffset: 0, loading: false });
+  const applySavedHistory = (database: ServerDatabase) => {
+    if (!Array.isArray(database.products)) return;
+    const byId = new Map(normalizeProducts(database.products).map((product) => [product.id, product.priceHistory]));
+    const withHistory = (product: Product) => ({ ...product, priceHistory: byId.get(product.id) || product.priceHistory });
+    productsRef.current = productsRef.current.map(withHistory);
+    setProducts((current) => current.map(withHistory));
+    setSelected((current) => current ? withHistory(current) : null);
+  };
   const saveCatalog = (nextProducts: Product[], nextSettings: AppSettings) => {
     productsRef.current = nextProducts;
     settingsRef.current = nextSettings;
-    return saveMongoSection("catalog", { products: nextProducts, settings: nextSettings });
+    return saveMongoSection("catalog", { products: nextProducts, settings: nextSettings }).then(applySavedHistory);
   };
   const saveProducts = (next: Product[]) => {
     setProducts(next);
@@ -230,6 +254,64 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
   };
   const saveProductCategory = (productId: number, categoryId: string, assigned: boolean) =>
     saveMongoSection("productCategory", { productId, categoryId, assigned });
+  const mergePriceHistory = (items: { id?: number; priceHistory?: PriceHistory[] }[]) => {
+    const byId = new Map(items.map((item) => [Number(item.id), Array.isArray(item.priceHistory) ? item.priceHistory.filter((entry) => entry && typeof entry === "object") : []]));
+    const withHistory = (product: Product) => {
+      const loaded = byId.get(product.id);
+      // A bulk save can record a newer snapshot while this request is in flight.
+      if (!loaded || loaded.length < product.priceHistory.length) return product;
+      return { ...product, priceHistory: loaded };
+    };
+    productsRef.current = productsRef.current.map(withHistory);
+    setProducts((current) => current.map(withHistory));
+    setSelected((current) => current ? withHistory(current) : null);
+  };
+  const loadProductHistories = async (offset: number, count: number) => {
+    if (!count) return;
+    const response = await fetch(`/api/database?section=productHistories&offset=${offset}&limit=${count}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const page = await response.json() as { items?: { id?: number; priceHistory?: PriceHistory[] }[] };
+    mergePriceHistory(page.items || []);
+  };
+  const saveBulkLevels = async (ids: number[], levels: ProductLevel[] | null) => {
+    const previous = productsRef.current;
+    const selectedIds = new Set(ids);
+    const optimistic = previous.map((product) => {
+      if (!selectedIds.has(product.id)) return product;
+      const nextLevels = levels === null ? [] : levels.map((level, index) => {
+        const copy = { ...level, id: `${product.id}-${level.id || index}` };
+        return copy.percent === undefined ? copy : { ...copy, price: levelPriceForBasePrice(product.price, copy) };
+      });
+      return { ...product, levels: nextLevels, updated: now() };
+    });
+    productsRef.current = optimistic;
+    setProducts(optimistic);
+    try {
+      const result = await saveMongoSection("bulkLevels", { ids, levels }) as { products?: { id: number; levels?: ProductLevel[]; priceHistory?: PriceHistory[]; updated?: string }[] };
+      const saved = new Map((result.products || []).map((product) => [Number(product.id), product]));
+      const patch = (product: Product) => {
+        const next = saved.get(product.id);
+        if (!next) return product;
+        return {
+          ...product,
+          levels: Array.isArray(next.levels) ? next.levels : product.levels,
+          priceHistory: Array.isArray(next.priceHistory) ? next.priceHistory : product.priceHistory,
+          updated: next.updated || product.updated,
+        };
+      };
+      productsRef.current = productsRef.current.map(patch);
+      setProducts((current) => current.map(patch));
+      setSelected((current) => current ? patch(current) : null);
+      showNotice("قیمت گروهی ذخیره شد.");
+      return true;
+    } catch {
+      productsRef.current = previous;
+      setProducts(previous);
+      setSelected((current) => current ? previous.find((product) => product.id === current.id) || current : null);
+      setError("ذخیره قیمت گروهی در MongoDB ناموفق بود؛ اتصال سرور را بررسی کنید.");
+      return false;
+    }
+  };
   const saveSettings = (next: AppSettings) => { setSettings(next); void saveCatalog(productsRef.current, next).catch(() => setError("ذخیره دسته‌بندی‌ها در MongoDB ناموفق بود.")); };
   const saveTasks = (next: Task[]) => { setTasks(next); void saveMongoSection("tasks", next).catch(() => setError("ذخیره تسک در MongoDB ناموفق بود.")); };
   const loadMoreProducts = async () => {
@@ -242,6 +324,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       const next = normalizeProducts(page.items);
       setProducts((current) => { const merged = mergeProducts(current, next); productsRef.current = merged; return merged; });
       setProductsPage({ hasMore: Boolean(page.hasMore), nextOffset: productsPage.nextOffset + next.length, loading: false });
+      void loadProductHistories(productsPage.nextOffset, next.length).catch(() => undefined);
     } catch {
       setProductsPage((current) => ({ ...current, loading: false }));
       setError("بارگذاری محصولات بیشتر ناموفق بود.");
@@ -256,25 +339,17 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     let cancelled = false;
     const loadingTimeout = window.setTimeout(() => {
       if (!cancelled) {
-        setShowIntro(false);
         setError("دریافت اطلاعات بیشتر از حد انتظار طول کشید. اتصال سرور را بررسی کنید.");
         setDatabaseLoaded(true);
       }
     }, 15000);
     const boot = async () => {
       // The login screen must stay available before a manager token exists.
-      if (initialView === "login") {
+      if (initialView === "login" || initialView === "landing") {
         window.clearTimeout(loadingTimeout);
         setDatabaseLoaded(true);
         return;
       }
-      const shouldShowIntro = localStorage.getItem("bazarek-intro-seen") !== "1";
-      if (shouldShowIntro) {
-        setShowIntro(true);
-        localStorage.setItem("bazarek-intro-seen", "1");
-        window.setTimeout(() => setShowIntro(false), 600);
-      }
-
       const database = initialView === "catalog"
         ? await readCatalog(searchParams.get("category"))
         : await readMongoDatabase();
@@ -292,10 +367,8 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         setTasks(database.tasks || []);
         window.clearTimeout(loadingTimeout);
         setDatabaseLoaded(true);
-        if (initialView === "landing" && localStorage.getItem("bazarek-role") === "user") {
-          setView("user");
-          router.replace("/products");
-        }
+        if (initialView !== "catalog" && pageInfo) void loadProductHistories(0, nextProducts.length).catch(() => undefined);
+
       }
 
     };
@@ -318,7 +391,6 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     setError("");
     setSelected(null);
     setShowAddProduct(false);
-    setView(nextView);
     router.push(path);
   };
   const logout = async () => {
@@ -326,8 +398,8 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     navigate("login", "/modir/login");
   };
 
-  const filtered = useMemo(() => products.filter((product) => product.name.includes(q.trim())), [products, q]);
-  const visibleProducts = useMemo(() => [...filtered.filter((product) => !categoryFilter || product.categoryIds.includes(categoryFilter))].sort((a, b) => sortMode === "price-asc" ? a.price - b.price : sortMode === "price-desc" ? b.price - a.price : sortMode === "stock-desc" ? b.stock - a.stock : a.name.localeCompare(b.name, "fa")), [filtered, categoryFilter, sortMode]);
+  const filtered = useMemo(() => products.filter((product) => String(product.name || "").includes(q.trim())), [products, q]);
+  const visibleProducts = useMemo(() => [...filtered.filter((product) => !categoryFilter || hasCategory(product, categoryFilter))].sort((a, b) => sortMode === "price-asc" ? a.price - b.price : sortMode === "price-desc" ? b.price - a.price : sortMode === "stock-desc" ? b.stock - a.stock : String(a.name || "").localeCompare(String(b.name || ""), "fa")), [filtered, categoryFilter, sortMode]);
   const catalogCategoryId = categoryId(searchParams.get("category") || (pathname.startsWith("/catalog/") ? pathname.slice("/catalog/".length) : "")) || null;
   const catalogCategory = settings.categories.find((category) => categoryId(category.id) === catalogCategoryId);
 
@@ -381,7 +453,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       price: value,
       levels: selected.levels?.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(value, level) }),
       invoices: recordInvoice ? [{ price: value, registeredAt }, ...selected.invoices] : selected.invoices,
-      priceHistory: selected.price === value ? selected.priceHistory : [{ previousPrice: selected.price, price: value, changedAt: registeredAt }, ...selected.priceHistory],
+      priceHistory: selected.priceHistory,
       updated: registeredAt,
     };
     setSelected(nextSelected);
@@ -393,6 +465,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     saveSettings({
+      ...settings,
       id: "settings",
       columnLabels: Array.from({ length: Number(form.get("labelCount")) || settings.columnLabels.length }, (_, index) => String(form.get(`label${index + 1}`) || `سطح ${index + 1}`)),
       categories: settings.categories,
@@ -413,6 +486,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     event.currentTarget.value = "";
     if (!file) return;
     try {
+      const XLSX = await import("xlsx");
       const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: "" });
       const headerIndex = rows.findIndex((row) => row.some((cell) => /نام|محصول/.test(String(cell))));
@@ -437,7 +511,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         else unchanged += 1;
         const hasPriceChange = Boolean(previous && previous.price !== price);
         imported.push({ ...(previous || {}), id: previous?.id ?? Date.now() + index, name, price, updated: hasPriceChange || !previous ? registeredAt : previous.updated,
-          invoices: !previous || hasPriceChange ? [{ price, registeredAt }, ...(previous?.invoices || [])] : previous.invoices, priceHistory: hasPriceChange ? [{ previousPrice: previous!.price, price, changedAt: registeredAt }, ...previous!.priceHistory] : previous?.priceHistory || [], percentages: previous?.percentages || [percent, percent, percent],
+          invoices: !previous || hasPriceChange ? [{ price, registeredAt }, ...(previous?.invoices || [])] : previous.invoices, priceHistory: previous?.priceHistory || [], percentages: previous?.percentages || [percent, percent, percent],
           unit: previous?.unit || "کیلوگرم", stock: previous?.stock || 0, active: previous?.active ?? true, rounding: previous?.rounding || [1000, 1000, 1000, 1000], roundingEnabled: previous?.roundingEnabled || [true, true, true, true], fixedPrices: previous?.fixedPrices || [], categoryIds: previous?.categoryIds || [], featured: previous?.featured ?? false, catalogUrl: previous?.catalogUrl || "", imageUrl: previous?.imageUrl || "", description: previous?.description || "" });
       });
       if (!imported.length) throw new Error("empty");
@@ -452,6 +526,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       setError("خواندن فایل اکسل ناموفق بود. ستون نام محصول و قیمت خرید را بررسی کنید.");
     }
   };
+<<<<<<< HEAD
   const exportLabels = useMemo(() => Array.from({ length: Math.max(settings.columnLabels.length, ...products.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || products.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`), [products, settings.columnLabels]);
   const allColumns = useMemo(() => ["نام محصول", "قیمت خرید فعلی", "فعال", "توضیحات", "محصول برتر", "آخرین تغییر قیمت", "قیمت قبل از آخرین تغییر", "تاریخ آخرین تغییر", "تعداد تغییر قیمت", "تاریخچه تغییر قیمت", ...exportLabels], [exportLabels]);
 
@@ -472,9 +547,29 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
          if (selectedReportColumns.includes(label)) {
              row[label] = product.levels?.[index]?.price ?? sale(product, index);
          }
+=======
+  const exportExcel = async () => {
+    const XLSX = await import("xlsx");
+    const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...products.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || products.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`);
+    const rows = [...products].sort((a, b) => Number(b.featured) - Number(a.featured)).map((product) => {
+      const lastChange = sortedPriceHistory(product.priceHistory)[0];
+      return {
+        "نام محصول": product.name,
+        "قیمت خرید فعلی": product.price,
+        "فعال": product.active ? "فعال" : "غیرفعال",
+        "محصول برتر": product.featured ? "بله" : "خیر",
+        "آخرین تغییر قیمت": lastChange ? lastChange.price : "",
+        "قیمت قبل از آخرین تغییر": lastChange ? lastChange.previousPrice : "",
+        "تاریخ آخرین تغییر": lastChange ? dateTime(lastChange.changedAt) : "",
+        "تعداد تغییر قیمت": product.priceHistory.length,
+        "تاریخچه تغییر قیمت": sortedPriceHistory(product.priceHistory).map((change) => historyExportText(change, settings.currency || "toman")).join("\n"),
+        ...Object.fromEntries(exportLabels.map((label, index) => [label, capturePricing(product, settings).levels[index]?.finalPrice ?? roundSalePrice(sale(product, index), settings)])),
+      };
+>>>>>>> refs/remotes/origin/main
     });
     return row;
   };
+<<<<<<< HEAD
 
   const exportExcel = () => {
     const rows = [...products].sort((a, b) => Number(b.featured) - Number(a.featured)).map(getProductRowData);
@@ -494,6 +589,11 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
   const exportCategoryExcel = (category: { id: string; name: string }) => {
     const categoryProducts = products.filter((product) => product.categoryIds.includes(category.id)); const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...categoryProducts.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || categoryProducts.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`); const rows = categoryProducts.map((product) => ({ "نام محصول": product.name, "قیمت خرید فعلی": product.price, "فعال": product.active ? "فعال" : "غیرفعال", "توضیحات": product.description, ...Object.fromEntries(exportLabels.map((label, index) => [label, product.levels?.[index]?.price ?? sale(product, index)])) }));
+=======
+  const exportCategoryExcel = async (category: { id: string; name: string }) => {
+    const XLSX = await import("xlsx");
+    const categoryProducts = products.filter((product) => hasCategory(product, category.id)); const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...categoryProducts.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || categoryProducts.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`); const rows = categoryProducts.map((product) => ({ "نام محصول": product.name, "قیمت خرید فعلی": product.price, "فعال": product.active ? "فعال" : "غیرفعال", "توضیحات": product.description, ...Object.fromEntries(exportLabels.map((label, index) => [label, capturePricing(product, settings).levels[index]?.finalPrice ?? roundSalePrice(sale(product, index), settings)])) }));
+>>>>>>> refs/remotes/origin/main
     const sheet = XLSX.utils.json_to_sheet(rows);
     sheet["!cols"] = [{ wch: 42 }, { wch: 18 }, { wch: 12 }, { wch: 40 }, ...exportLabels.map(() => ({ wch: 16 }))];
     const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, category.name.slice(0, 31) || "دسته"); XLSX.writeFile(book, `دسته ${category.name}.xlsx`);
@@ -503,16 +603,20 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
     if (nextCurrency === currentCurrency) return;
     const factor = nextCurrency === "rial" ? 10 : 0.1;
     const nextProducts = products.map((product) => convertProductCurrency(product, factor));
-    const saved = await saveProducts(nextProducts);
-    if (!saved) return;
-    saveSettings({ ...settings, currency: nextCurrency });
-    showNotice(`همهٔ مبالغ به ${currencyTitle(nextCurrency)} تبدیل شد.`);
+    const nextSettings = { ...settings, currency: nextCurrency };
+    try {
+      await saveCatalog(nextProducts, nextSettings);
+      setProducts(productsRef.current);
+      setSettings(nextSettings);
+      setSelected((current) => current ? productsRef.current.find((product) => product.id === current.id) || null : null);
+      showNotice(`همهٔ مبالغ به ${currencyTitle(nextCurrency)} تبدیل شد.`);
+    } catch { setError("ذخیره تغییر واحد پول ناموفق بود."); }
   };
 
-  if (showIntro || !databaseLoaded) return <LoadingIntro />;
+  if (!databaseLoaded) return <LoadingIntro />;
 
   if (view === "landing") {
-    return <Landing navigate={navigate} />;
+    return null;
   }
 
   if (view === "login") {
@@ -527,7 +631,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       {notice && <div role="status" className="fixed top-5 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-xl">{notice}</div>}
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         {view === "catalog" ? (
-          <Catalog products={products} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} onSelect={setSelected} />
+          <Catalog products={products} labels={settings.columnLabels} categories={settings.categories} selectedCategoryId={catalogCategoryId} contact={settings.catalogContact || {}} settings={settings} onSelect={setSelected} />
         ) : isAdmin ? (
           <Admin
             products={visibleProducts}
@@ -544,13 +648,24 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             onExportCategoryExcel={exportCategoryExcel}
             currency={settings.currency || "toman"}
             onChangeCurrency={changeCurrency}
+            priceRounding={settings.priceRounding ?? 0}
+            onPriceRoundingChange={async (priceRounding) => {
+              const next = { ...settingsRef.current, priceRounding };
+              try {
+                const database = await saveMongoSection("priceRounding", priceRounding);
+                applySavedHistory(database);
+                settingsRef.current = next;
+                setSettings(next);
+                showNotice("تنظیم گرد کردن قیمت‌ها ذخیره شد.");
+              } catch { throw new Error("ذخیره تنظیم گرد کردن ناموفق بود؛ دوباره تلاش کنید."); }
+            }}
             onSaveLabels={updateColumnLabels}
             onCategoriesChange={(categories) => saveSettings({ ...settings, categories })}
             catalogContact={settings.catalogContact || {}}
             onCatalogContactChange={(catalogContact) => saveSettings({ ...settings, catalogContact })}
             onBrowseMode={(browseMode) => saveSettings({ ...settings, browseMode })}
             onAssignCategory={(categoryId, ids) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, categoryIds: Array.from(new Set([...product.categoryIds, categoryId])) } : product))}
-            onApplyLevels={(ids, levels) => saveProducts(products.map((product) => ids.includes(product.id) ? { ...product, levels: levels.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(product.price, level) }), updated: now() } : product))}
+            onApplyLevels={(ids, levels) => { void saveBulkLevels(ids, levels); }}
             onAddTask={addTask}
             onToggleTask={(id) => saveTasks(tasks.map((task) => (task.id === id ? { ...task, done: !task.done } : task)))}
             onDeleteTask={(id) => saveTasks(tasks.filter((task) => task.id !== id))}
@@ -572,9 +687,10 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
         <AddProductSheet labels={settings.columnLabels} categories={settings.categories} onClose={() => setShowAddProduct(false)} onAdd={add} error={error} />
       )}
       {selected && (
+        <ProductErrorBoundary key={selected.id} name={selected.name}>
         <Detail
-          key={selected.id}
           product={selected}
+          settings={settings}
           labels={settings.columnLabels}
           categories={settings.categories}
           admin={isAdmin}
@@ -615,9 +731,9 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
               categoryIds: settings.categories.filter((category) => form.get(`category-${category.id}`) === "on").map((category) => category.id),
               updated: now(),
             };
+            setSelected(nextSelected);
             const saved = await saveProducts(products.map((product) => (product.id === selected.id ? nextSelected : product)));
             if (saved) showNotice("قیمت‌گذاری و سطح‌های محصول با موفقیت ذخیره شد.");
-            setSelected(nextSelected);
           }}
           onDelete={async () => {
             if (!confirmDelete(`محصول «${selected.name}»`)) return;
@@ -630,6 +746,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
             showNotice("محصول از دیتابیس حذف شد.");
           }}
         />
+        </ProductErrorBoundary>
       )}
       {isAdmin && <MobileBottomNav />}
     </main>
@@ -638,48 +755,7 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
 function CategoryFilter({ categories, products, value, onChange, sortMode, onSort }: { categories: { id: string; name: string }[]; products: Product[]; value: string | null; onChange: (value: string | null) => void; sortMode: string; onSort: (value: string) => void }) {
   const [open, setOpen] = useState(false);
-  return <><button onClick={() => setOpen(true)} className="fixed left-4 top-[calc(50%+1rem)] z-10 rounded-full bg-oxblood px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-oxblood-dark">فیلتر دسته‌ها</button>{open && <div className="fixed inset-0 z-40 flex justify-end"><button onClick={() => setOpen(false)} className="absolute inset-0 bg-oxblood-dark/40" aria-label="بستن"/><section className="relative h-full w-[92vw] max-w-md overflow-y-auto bg-white p-5 shadow-2xl animate-in slide-in-from-right duration-200"><h2 className="text-lg font-black">فیلتر و مرتب‌سازی</h2><select value={sortMode} onChange={(event) => onSort(event.target.value)} className="mt-4 w-full rounded-lg border border-oxblood/15 p-3"><option value="name">نام محصول</option><option value="price-asc">قیمت: کم به زیاد</option><option value="price-desc">قیمت: زیاد به کم</option><option value="stock-desc">بیشترین موجودی</option></select><p className="mt-4 text-xs text-oxblood-dark/55">دسته‌بندی موردنظر را انتخاب کنید.</p><div className="mt-2 space-y-2"><button onClick={() => { onChange(null); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${!value ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>همه محصولات</span><b>{products.filter((product) => product.active).length}</b></button>{categories.map((category) => { const count = products.filter((product) => product.active && product.categoryIds.includes(category.id)).length; return <button key={category.id} onClick={() => { onChange(category.id); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${value === category.id ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>{category.name}</span><b>{count} محصول</b></button>; })}</div></section></div>}</>;
-}
-
-function Landing({ navigate }: { navigate: (nextView: View, path: string) => void }) {
-  return (
-    <main className="min-h-screen bg-blush px-4 py-10 text-oxblood-dark sm:px-6 sm:py-16">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl flex-col justify-center">
-        <p className="text-lg font-black text-oxblood">بازارک</p>
-        <p className="mt-2 text-sm text-oxblood-dark/65">نسخه آسیاب صداقت</p>
-        <h1 className="mt-12 text-2xl font-black leading-tight sm:mt-16 sm:text-4xl">کدام بخش را می‌خواهید؟</h1>
-        <div className="mt-8 grid gap-3 sm:grid-cols-3 sm:gap-4">
-          <button
-            onClick={() => {
-              localStorage.setItem("bazarek-role", "user");
-              navigate("user", "/products");
-            }}
-            className="rounded-lg border border-oxblood/15 bg-white p-5 text-right shadow-sm transition hover:border-oxblood/45 sm:p-7"
-          >
-            <Search className="mb-7 text-oxblood" />
-            <b className="block text-xl sm:text-2xl">کاربر هستم</b>
-            <span className="mt-2 block text-sm text-oxblood-dark/60">جستجو و مشاهده قیمت محصولات</span>
-          </button>
-          <button
-            onClick={() => navigate("catalog", "/catalog")}
-            className="rounded-lg border border-oxblood/15 bg-white p-5 text-right shadow-sm transition hover:border-oxblood/45 sm:p-7"
-          >
-            <BookOpen className="mb-7 text-oxblood" />
-            <b className="block text-xl sm:text-2xl">کاتالوگ</b>
-            <span className="mt-2 block text-sm text-oxblood-dark/60">کاتالوگ کامل محصولات</span>
-          </button>
-          <button
-            onClick={() => navigate("login", "/modir/login")}
-            className="rounded-lg bg-oxblood p-5 text-right text-white shadow-sm transition hover:bg-oxblood-dark sm:p-7"
-          >
-            <ShieldCheck className="mb-7 text-white" />
-            <b className="block text-xl sm:text-2xl">مدیر هستم</b>
-            <span className="mt-2 block text-sm text-white/75">مدیریت مهدی</span>
-          </button>
-        </div>
-      </div>
-    </main>
-  );
+  return <><button onClick={() => setOpen(true)} className="fixed left-4 top-[calc(50%+1rem)] z-10 rounded-full bg-oxblood px-4 py-3 text-sm font-bold text-white shadow-xl transition hover:bg-oxblood-dark">فیلتر دسته‌ها</button>{open && <div className="fixed inset-0 z-40 flex justify-end"><button onClick={() => setOpen(false)} className="absolute inset-0 bg-oxblood-dark/40" aria-label="بستن"/><section className="relative h-full w-[92vw] max-w-md overflow-y-auto bg-white p-5 shadow-2xl animate-in slide-in-from-right duration-200"><h2 className="text-lg font-black">فیلتر و مرتب‌سازی</h2><select value={sortMode} onChange={(event) => onSort(event.target.value)} className="mt-4 w-full rounded-lg border border-oxblood/15 p-3"><option value="name">نام محصول</option><option value="price-asc">قیمت: کم به زیاد</option><option value="price-desc">قیمت: زیاد به کم</option><option value="stock-desc">بیشترین موجودی</option></select><p className="mt-4 text-xs text-oxblood-dark/55">دسته‌بندی موردنظر را انتخاب کنید.</p><div className="mt-2 space-y-2"><button onClick={() => { onChange(null); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${!value ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>همه محصولات</span><b>{products.filter((product) => product.active).length}</b></button>{categories.map((category) => { const count = products.filter((product) => product.active && hasCategory(product, category.id)).length; return <button key={category.id} onClick={() => { onChange(category.id); setOpen(false); }} className={`flex w-full items-center justify-between rounded-lg border p-3 text-right ${value === category.id ? "border-oxblood bg-blush" : "border-oxblood/10"}`}><span>{category.name}</span><b>{count} محصول</b></button>; })}</div></section></div>}</>;
 }
 
 function Login({
@@ -709,9 +785,7 @@ function Login({
         }}
         className="w-full max-w-sm rounded-lg border border-oxblood/15 bg-white p-6 shadow-sm sm:p-7"
       >
-        <button type="button" onClick={() => navigate("landing", "/")} className="mb-6 text-oxblood/65">
-          <ArrowRight size={18} />
-        </button>
+        <div className="mb-6"><BrandLogo /></div>
         <h1 className="text-2xl font-black">ورود مدیر</h1>
         <p className="mt-2 text-sm text-oxblood-dark/55">مهدی، رمز مدیریت را وارد کنید.</p>
         <input name="password" type="password" className="mt-6 w-full rounded-lg border border-oxblood/15 p-3" />
@@ -738,10 +812,14 @@ function Header({
   return (
     <header className="sticky top-0 z-10 border-b border-oxblood/10 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-6">
       <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center">
+<<<<<<< HEAD
         <div>
           <b className="text-xl font-black text-oxblood">بازارک</b>
           <span className="mr-2 text-xs text-oxblood-dark/45">بازار فروش عمده آسیاب صداقت</span>
         </div>
+=======
+        <Link href="/" aria-label="بازارک؛ صفحه اصلی"><BrandLogo /></Link>
+>>>>>>> refs/remotes/origin/main
         <div className="relative w-full sm:mr-auto sm:max-w-md">
           <Search className="absolute right-3 top-3 text-oxblood/45" size={18} />
           <input
@@ -755,7 +833,7 @@ function Header({
           {admin && <><Link href="/customers" className="rounded-lg px-2 py-1 hover:bg-blush">مشتریان</Link><Link href="/mobile-services" className="rounded-lg px-2 py-1 hover:bg-blush">خدمات سیار</Link></>}
           <button onClick={() => navigate("catalog", "/catalog")}>کاتالوگ</button>
           {admin ? <button onClick={() => void onLogout()}>خروج مدیر</button> : <button onClick={() => navigate("login", "/modir/login")}>ورود مدیر</button>}
-          <button onClick={() => navigate("landing", "/")}>تغییر نقش</button>
+          <button onClick={() => navigate("landing", "/")}>صفحه اصلی</button>
         </div>
       </div>
     </header>
@@ -771,8 +849,13 @@ function LoadingIntro() {
           <Sparkles size={26} />
         </div>
         <div className="mt-8 text-center">
+<<<<<<< HEAD
           <h1 className="text-4xl font-black">بازارک</h1>
           <span className="mr-2 text-xs text-oxblood-dark/45">بازار فروش عمده آسیاب صداقت</span>
+=======
+          <BrandLogo inverted />
+          <p className="mt-2 text-sm text-white/75">در حال دریافت اطلاعات…</p>
+>>>>>>> refs/remotes/origin/main
         </div>
       </div>
     </main>
@@ -800,9 +883,9 @@ function ProductSections({
 }) {
   const featured = products.filter((product) => product.featured);
   const rest = products.filter((product) => !product.featured);
-  const letters = Array.from(new Set(products.map((product) => product.name.trim().charAt(0)))).filter(Boolean).sort((a, b) => a.localeCompare(b, "fa"));
+  const letters = Array.from(new Set(products.map((product) => String(product.name || "").trim().charAt(0)))).filter(Boolean).sort((a, b) => a.localeCompare(b, "fa"));
   if (mode === "phonebook") {
-    return <><h1 className="text-xl font-black sm:text-2xl">دفترچه محصولات</h1>{featured.length > 0 && <section className="mt-6"><h2 className="text-lg font-black text-oxblood">محصولات برتر</h2><Grid items={featured} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section>}{letters.map((letter) => { const items = products.filter((product) => !product.featured && product.name.trim().startsWith(letter)); return items.length ? <section key={letter} className="mt-8"><h2 className="border-b border-oxblood/15 pb-2 text-2xl font-black text-oxblood">{letter}</h2><Grid items={items} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section> : null; })}</>;
+    return <><h1 className="text-xl font-black sm:text-2xl">دفترچه محصولات</h1>{featured.length > 0 && <section className="mt-6"><h2 className="text-lg font-black text-oxblood">محصولات برتر</h2><Grid items={featured} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section>}{letters.map((letter) => { const items = products.filter((product) => !product.featured && String(product.name || "").trim().startsWith(letter)); return items.length ? <section key={letter} className="mt-8"><h2 className="border-b border-oxblood/15 pb-2 text-2xl font-black text-oxblood">{letter}</h2><Grid items={items} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} /></section> : null; })}</>;
   }
   return (
     <>
@@ -812,6 +895,15 @@ function ProductSections({
       <Grid items={rest} labels={labels} admin={admin} onSelect={onSelect} onToggleFeatured={onToggleFeatured} selectedIds={selectedIds} onToggleSelect={onToggleSelect} />
     </>
   );
+}
+
+class ProductErrorBoundary extends Component<{ children: ReactNode; name?: string }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (this.state.failed) return <article className="min-h-36 rounded-lg border border-red-200 bg-white p-3 text-xs leading-6 text-red-700">نمایش «{this.props.name || "این محصول"}» ممکن نشد. قیمت‌گذاری‌اش را یک بار دیگر ذخیره کنید.</article>;
+    return this.props.children;
+  }
 }
 
 function Grid({
@@ -834,22 +926,23 @@ function Grid({
   return (
     <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {items.map((product) => (
+        <ProductErrorBoundary key={product.id} name={product.name}>
         <div
-          key={product.id}
           className="min-h-36 rounded-lg border border-oxblood/10 bg-white p-3 text-right shadow-sm transition hover:border-oxblood/45 sm:p-4"
         >
           <div className="flex items-start justify-between gap-2">{admin ? <button type="button" onClick={() => onToggleFeatured?.(product)} className="rounded-full p-1 hover:bg-amber-50" aria-label={product.featured ? "حذف از محصولات برتر" : "افزودن به محصولات برتر"}><Star size={18} className={product.featured ? "fill-amber-400 text-amber-400" : "text-oxblood/30"} /></button> : <Star size={15} className={product.featured ? "fill-amber-400 text-amber-400" : "text-oxblood/20"} />}{admin && onToggleSelect && <input type="checkbox" checked={selectedIds?.includes(product.id) || false} onChange={() => onToggleSelect(product.id)} className="h-5 w-5 accent-oxblood" aria-label={`انتخاب ${product.name}`} />}</div>
           <button onClick={() => onSelect(product)} className="w-full text-right">
           <b className="mt-4 block text-sm font-black leading-6 sm:text-base">{product.name}</b>
           {product.description && <small className="mt-1 block line-clamp-2 text-[11px] leading-5 text-oxblood-dark/55">{product.description}</small>}
-          <span className="mt-1 block text-[11px] text-oxblood-dark/45">{labels[0]}</span>
+          <span className="mt-1 block text-[11px] text-oxblood-dark/45">{labels?.[0]}</span>
           {admin && <strong className="mt-4 block text-[11px] font-black text-oxblood">آخرین خرید: {money(latestPurchase(product))}</strong>}
-          {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تاریخ آخرین خرید: {product.invoices[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</small>}
+          {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تاریخ آخرین خرید: {product.invoices?.[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</small>}
           {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">تغییر قیمت: {date(product.updated)}</small>}
-          {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">{product.invoices.length} فاکتور</small>}
+          {admin && <small className="mt-1 block text-[11px] text-oxblood-dark/45">{product.invoices?.length || 0} فاکتور</small>}
           </button>
           {admin && <button type="button" onClick={() => onSelect(product)} className="mt-3 w-full rounded-lg border border-oxblood/20 py-1.5 text-xs font-bold text-oxblood">ویرایش محصول</button>}
         </div>
+        </ProductErrorBoundary>
       ))}
     </div>
   );
@@ -870,6 +963,8 @@ function Admin({
   onExportCategoryExcel,
   currency,
   onChangeCurrency,
+  priceRounding,
+  onPriceRoundingChange,
   onSaveLabels,
   onCategoriesChange,
   catalogContact,
@@ -902,13 +997,15 @@ function Admin({
   onExportCategoryExcel: (category: { id: string; name: string }) => void;
   currency: Currency;
   onChangeCurrency: (currency: Currency) => void;
+  priceRounding: PriceRounding;
+  onPriceRoundingChange: (value: PriceRounding) => Promise<void>;
   onSaveLabels: (event: FormEvent<HTMLFormElement>) => void;
   onCategoriesChange: (categories: { id: string; name: string }[]) => void;
   catalogContact: CatalogContact;
   onCatalogContactChange: (contact: CatalogContact) => void;
   onBrowseMode: (mode: "sections" | "phonebook") => void;
   onAssignCategory: (categoryId: string, ids: number[]) => void;
-  onApplyLevels: (ids: number[], levels: ProductLevel[]) => void;
+  onApplyLevels: (ids: number[], levels: ProductLevel[] | null) => void;
   onAddTask: (event: FormEvent<HTMLFormElement>) => void;
   onToggleTask: (id: number) => void;
   onDeleteTask: (id: number) => void;
@@ -987,11 +1084,12 @@ function Admin({
           <section className="relative h-full w-full overflow-y-auto bg-white p-5 shadow-2xl sm:p-8">
             <button onClick={() => setShowSettings(false)} className="absolute left-4 top-4 text-oxblood/65" aria-label="بستن"><X /></button>
             <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-oxblood/20" />
-            <h2 className="flex items-center gap-2 text-xl font-black"><Settings2 size={20} /> تنظیمات ستون‌ها</h2>
-            <p className="mt-2 text-sm text-oxblood-dark/55">نام سه ستون قیمت را تغییر دهید.</p>
+            <h2 className="flex items-center gap-2 text-xl font-black"><Settings2 size={20} /> تنظیمات اپلیکیشن</h2>
+            <p className="mt-2 text-sm text-oxblood-dark/55">واحد پول، گرد کردن قیمت و دسته‌بندی‌ها را تنظیم کنید.</p>
             <div className="mt-4">
               <section className="mb-4 rounded-lg border border-oxblood/10 bg-blush p-4"><h3 className="font-black">واحد پول</h3><p className="mt-1 text-xs text-oxblood-dark/55">با تغییر واحد، همهٔ قیمت‌ها، فاکتورها، قیمت‌های سطحی و تاریخچه‌ها هم‌زمان تبدیل می‌شوند.</p><div className="mt-3 flex gap-2"><button type="button" onClick={() => onChangeCurrency("toman")} className={`rounded-lg px-3 py-2 text-sm font-bold ${currency === "toman" ? "bg-oxblood text-white" : "border border-oxblood/20 bg-white text-oxblood"}`}>تومان</button><button type="button" onClick={() => onChangeCurrency("rial")} className={`rounded-lg px-3 py-2 text-sm font-bold ${currency === "rial" ? "bg-oxblood text-white" : "border border-oxblood/20 bg-white text-oxblood"}`}>ریال</button></div></section>
               <section className="mb-4 rounded-lg border border-oxblood/10 bg-blush p-4"><h3 className="font-black">فایل‌های اکسل</h3><p className="mt-1 text-xs text-oxblood-dark/55">ورود اطلاعات جدید یا دریافت فهرست قیمت‌ها.</p><div className="mt-3 flex flex-wrap gap-2"><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-sm font-bold text-oxblood"><Upload size={16} /> آپلود اکسل<input type="file" accept=".xlsx,.xls,.csv" onChange={onImportExcel} className="sr-only" /></label><button onClick={onExportExcel} className="rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white">خروجی اکسل</button></div></section>
+              <RoundingSettings value={priceRounding} onChange={onPriceRoundingChange} />
               <DisplayModeForm mode={browseMode} onChange={onBrowseMode} />
               <CategoryForm categories={categories} onChange={onCategoriesChange} />
               <CatalogSettingsForm contact={catalogContact} categories={categories} onSave={onCatalogContactChange} />
@@ -1004,11 +1102,39 @@ function Admin({
   );
 }
 
+<<<<<<< HEAD
 function ReportsPanel({ products, categories, importReports, onSelect, onExportCategory, currency, selectedCategories, setSelectedCategories, exportBatchCategories, allColumns, selectedReportColumns, setSelectedReportColumns }: { products: Product[]; categories: { id: string; name: string }[]; importReports: ImportReport[]; onSelect: (product: Product) => void; onExportCategory: (category: { id: string; name: string }) => void; currency: Currency; selectedCategories: string[]; setSelectedCategories: Dispatch<SetStateAction<string[]>>; exportBatchCategories: () => void; allColumns: string[]; selectedReportColumns: string[]; setSelectedReportColumns: Dispatch<SetStateAction<string[]>> }) {
   const toggleCategory = (id: string) => setSelectedCategories((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   const toggleColumn = (col: string) => setSelectedReportColumns((current) => current.includes(col) ? current.filter((value) => value !== col) : [...current, col]);
   const productsByLatestChange = [...products].sort((a, b) => priceChangeTime(sortedPriceHistory(b.priceHistory)[0]) - priceChangeTime(sortedPriceHistory(a.priceHistory)[0]));
   return <div className="mt-5 space-y-5"><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش دسته‌بندی‌ها</h2><div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" onClick={exportBatchCategories} disabled={!selectedCategories.length} className="rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white disabled:opacity-40">خروجی اکسل دسته‌های انتخاب شده ({selectedCategories.length.toLocaleString("fa-IR")})</button><small className="text-xs text-oxblood-dark/55">دسته‌ها را با تیک انتخاب کنید، سپس خروجی بگیرید.</small></div><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => { const items = products.filter((product) => product.categoryIds.includes(category.id)); const checked = selectedCategories.includes(category.id); return <article key={category.id} className={`rounded-lg bg-blush p-3 ${checked ? "ring-2 ring-oxblood" : ""}`}><label className="flex items-center gap-2"><input type="checkbox" checked={checked} onChange={() => toggleCategory(category.id)} /><b>{category.name}</b></label><span className="mt-2 block text-sm">{items.length.toLocaleString("fa-IR")} محصول</span><small className="mt-1 block text-oxblood-dark/55">{items.filter((item) => item.active).length.toLocaleString("fa-IR")} فعال</small><button type="button" onClick={() => onExportCategory(category)} className="mt-3 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">خروجی اکسل این دسته</button></article>; })}</div>{!categories.length && <p className="mt-3 text-sm text-oxblood-dark/55">هنوز دسته‌ای برای محصولات ساخته نشده است.</p>}</section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">تنظیمات خروجی اکسل</h2><p className="mt-1 text-sm text-oxblood/60">ستون‌های مورد نیاز برای خروجی اکسل را انتخاب کنید:</p><div className="mt-3 flex flex-wrap gap-2">{allColumns.map((col) => <label key={col} className="flex items-center gap-2 cursor-pointer rounded-lg border border-oxblood/10 bg-blush/50 p-2 text-sm text-oxblood transition hover:bg-blush"><input type="checkbox" checked={selectedReportColumns.includes(col)} onChange={() => toggleColumn(col)} />{col}</label>)}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش هر محصول</h2><div className="mt-3 space-y-2">{productsByLatestChange.map((product) => { const latestChange = sortedPriceHistory(product.priceHistory)[0]; return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg bg-blush p-3"><div><b>{product.name}</b><small className="mt-1 block text-xs text-oxblood-dark/55">قیمت فعلی: {money(product.price)} {currencyTitle(currency)} · {product.priceHistory.length.toLocaleString("fa-IR")} تغییر قیمت</small><small className="mt-1 block text-xs text-oxblood-dark/45">{latestChange ? `آخرین تغییر: ${dateTime(latestChange.changedAt)}` : "بدون تغییر قیمت"}</small></div><button type="button" onClick={() => onSelect(product)} className="shrink-0 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">گزارش محصول</button></div>; })}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش ورود فایل‌ها</h2>{importReports.length ? <div className="mt-3 space-y-2">{importReports.map((report) => <article key={report.id} className="rounded-lg bg-blush p-3"><b className="block break-all text-sm">{report.fileName}</b><small className="mt-1 block text-xs text-oxblood-dark/55">{dateTime(report.importedAt)}</small><div className="mt-2 flex flex-wrap gap-2 text-xs"><span>جدید: {report.added.toLocaleString("fa-IR")}</span><span>تغییر قیمت: {report.priceChanged.toLocaleString("fa-IR")}</span><span>بدون تغییر: {report.unchanged.toLocaleString("fa-IR")}</span></div></article>)}</div> : <p className="mt-3 text-sm text-oxblood-dark/55">هنوز گزارشی از ورود اکسل محصولات ثبت نشده است.</p>}</section></div>;
+=======
+function RoundingSettings({ value, onChange }: { value: PriceRounding; onChange: (value: PriceRounding) => Promise<void> }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  return <section className="mb-4 rounded-lg border border-oxblood/10 bg-blush p-4">
+    <label htmlFor="price-rounding" className="block font-black">گرد کردن مبالغ فروش</label>
+    <p id="rounding-help" className="mt-1 text-xs leading-6 text-oxblood-dark/65">قیمت نهایی در جزئیات محصول، کاتالوگ و خروجی اکسل به نزدیک‌ترین مضرب گرد می‌شود. قیمت خرید تغییر نمی‌کند؛ درصد و گرد کردن قبلی در تاریخچه محفوظ می‌مانند. گام‌ها همیشه بر حسب تومان هستند.</p>
+    <select id="price-rounding" aria-describedby="rounding-help" value={value} disabled={saving} onChange={async (event) => {
+      setSaving(true);
+      setError("");
+      try { await onChange(Number(event.target.value) as PriceRounding); }
+      catch { setError("ذخیره تنظیم گرد کردن ناموفق بود؛ دوباره تلاش کنید."); }
+      finally { setSaving(false); }
+    }} className="mt-3 w-full rounded-lg border border-oxblood/20 bg-white p-3 text-sm sm:max-w-xs">
+      <option value={0}>بدون گرد کردن</option>
+      <option value={100}>نزدیک‌ترین ۱۰۰ تومان</option>
+      <option value={1000}>نزدیک‌ترین ۱۰۰۰ تومان</option>
+    </select>
+    {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
+    <p className="mt-2 text-xs text-oxblood/70">مثال: ۱۲٬۳۶۰ تومان ← {money(roundSalePrice(12360, { priceRounding: value }))} تومان{saving ? " · در حال ذخیره…" : ""}</p>
+  </section>;
+}
+
+function ReportsPanel({ products, categories, importReports, onSelect, onExportCategory, currency }: { products: Product[]; categories: { id: string; name: string }[]; importReports: ImportReport[]; onSelect: (product: Product) => void; onExportCategory: (category: { id: string; name: string }) => void; currency: Currency }) {
+  const productsByLatestChange = [...products].sort((a, b) => priceChangeTime(sortedPriceHistory(b.priceHistory)[0]) - priceChangeTime(sortedPriceHistory(a.priceHistory)[0]));
+  return <div className="mt-5 space-y-5"><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش دسته‌بندی‌ها</h2><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => { const items = products.filter((product) => hasCategory(product, category.id)); return <article key={category.id} className="rounded-lg bg-blush p-3"><b>{category.name}</b><span className="mt-2 block text-sm">{items.length.toLocaleString("fa-IR")} محصول</span><small className="mt-1 block text-oxblood-dark/55">{items.filter((item) => item.active).length.toLocaleString("fa-IR")} فعال</small><button type="button" onClick={() => onExportCategory(category)} className="mt-3 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">خروجی اکسل این دسته</button></article>; })}</div>{!categories.length && <p className="mt-3 text-sm text-oxblood-dark/55">هنوز دسته‌ای برای محصولات ساخته نشده است.</p>}</section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش هر محصول</h2><div className="mt-3 space-y-2">{productsByLatestChange.map((product) => { const latestChange = sortedPriceHistory(product.priceHistory)[0]; return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg bg-blush p-3"><div><b>{product.name}</b><small className="mt-1 block text-xs text-oxblood-dark/55">قیمت فعلی: {money(product.price)} {currencyTitle(currency)} · {product.priceHistory.length.toLocaleString("fa-IR")} تغییر قیمت</small><small className="mt-1 block text-xs text-oxblood-dark/45">{latestChange ? `آخرین تغییر: ${dateTime(latestChange.changedAt)}` : "بدون تغییر قیمت"}</small></div><button type="button" onClick={() => onSelect(product)} className="shrink-0 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">گزارش محصول</button></div>; })}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش ورود فایل‌ها</h2>{importReports.length ? <div className="mt-3 space-y-2">{importReports.map((report) => <article key={report.id} className="rounded-lg bg-blush p-3"><b className="block break-all text-sm">{report.fileName}</b><small className="mt-1 block text-xs text-oxblood-dark/55">{dateTime(report.importedAt)}</small><div className="mt-2 flex flex-wrap gap-2 text-xs"><span>جدید: {report.added.toLocaleString("fa-IR")}</span><span>تغییر قیمت: {report.priceChanged.toLocaleString("fa-IR")}</span><span>بدون تغییر: {report.unchanged.toLocaleString("fa-IR")}</span></div></article>)}</div> : <p className="mt-3 text-sm text-oxblood-dark/55">هنوز گزارشی از ورود اکسل محصولات ثبت نشده است.</p>}</section></div>;
+>>>>>>> refs/remotes/origin/main
 }
 
 function CategoryForm({ categories, onChange }: { categories: { id: string; name: string }[]; onChange: (categories: { id: string; name: string }[]) => void }) {
@@ -1035,11 +1161,11 @@ function DisplayModeForm({ mode, onChange }: { mode: "sections" | "phonebook"; o
   return <section className="mt-4 rounded-lg border border-oxblood/10 p-4"><h3 className="font-black">نحوه نمایش محصولات</h3><p className="mt-1 text-xs text-oxblood-dark/55">حالت دفترچه‌ای محصولات را براساس حروف الفبا صفحه‌بندی می‌کند.</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => onChange("phonebook")} className={`rounded-lg p-2 text-sm font-bold ${mode === "phonebook" ? "bg-oxblood text-white" : "bg-blush text-oxblood"}`}>دفترچه‌ای (حروف)</button><button type="button" onClick={() => onChange("sections")} className={`rounded-lg p-2 text-sm font-bold ${mode === "sections" ? "bg-oxblood text-white" : "bg-blush text-oxblood"}`}>بخش‌بندی معمولی</button></div></section>;
 }
 
-function BulkPricingSheet({ count, onClose, onApply }: { count: number; onClose: () => void; onApply: (levels: ProductLevel[]) => void }) {
+function BulkPricingSheet({ count, onClose, onApply }: { count: number; onClose: () => void; onApply: (levels: ProductLevel[] | null) => void }) {
   const units = ["بسته", "عدد", "مثقال", "لیتر", "کارتن", "گرم", "کیلوگرم"];
   const [levels, setLevels] = useState<ProductLevel[]>([{ id: "bulk-1", label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }]);
   const update = (index: number, patch: Partial<ProductLevel>) => setLevels(levels.map((level, itemIndex) => itemIndex === index ? { ...level, ...patch } : level));
-  return <div className="fixed inset-0 z-30 flex items-end justify-center"><button onClick={onClose} className="absolute inset-0 bg-oxblood-dark/45" aria-label="بستن"/><section className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-5xl sm:p-8"><button onClick={onClose} className="absolute left-5 top-5 text-oxblood"><X/></button><h2 className="text-2xl font-black">مرحله ۲ · قیمت‌گذاری گروهی</h2><p className="mt-2 text-sm text-oxblood-dark/60">سطح‌های زیر روی {count.toLocaleString("fa-IR")} محصول انتخاب‌شده اعمال می‌شوند.</p><div className="mt-5 rounded-lg border border-oxblood/10 bg-white p-3"><div className="flex items-center justify-between"><h4 className="font-black">سطح‌های قیمت‌گذاری</h4><button type="button" onClick={() => setLevels([...levels, { id: `bulk-${Date.now()}`, label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }])} className="rounded-lg border border-oxblood/20 px-3 py-1.5 text-xs font-bold text-oxblood">+ افزودن سطح</button></div><p className="mt-2 text-xs text-oxblood-dark/55">درصد سود برای هر محصول از قیمت خرید خودش محاسبه می‌شود. وارد کردن قیمت فروش، آن را به‌صورت قیمت ثابت برای همهٔ محصولات اعمال می‌کند.</p><div className="mt-3 space-y-2">{levels.map((level, index) => <div key={level.id} className="grid gap-2 rounded-lg bg-blush p-2 sm:grid-cols-8"><input value={level.label} onChange={(event) => update(index, { label: event.target.value })} placeholder="نام سطح" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.quantity} onChange={(event) => update(index, { quantity: event.target.value })} placeholder="مقدار" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.unit} onChange={(event) => update(index, { unit: event.target.value })} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="" disabled>واحد</option>{units.map((unit) => <option key={unit}>{unit}</option>)}</select><input value={level.percent ?? ""} onChange={(event) => update(index, { percent: event.target.value === "" ? undefined : Number(event.target.value), price: 0 })} placeholder="درصد سود" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.price || ""} onChange={(event) => update(index, { price: parseAmount(event.target.value), percent: undefined })} placeholder="قیمت فروش" type="text" inputMode="numeric" className="rounded border border-oxblood/15 bg-white p-2 text-xs font-bold text-oxblood"/><input value={level.rounding ?? ""} onChange={(event) => update(index, { rounding: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="مبلغ رند" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.roundingMode || "none"} onChange={(event) => update(index, { roundingMode: event.target.value as ProductLevel["roundingMode"] })} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select><button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button></div>)}</div></div><div className="mt-4 flex flex-wrap gap-2"><button disabled={!levels.length} onClick={() => onApply(levels)} className="rounded-lg bg-oxblood px-5 py-2 font-bold text-white disabled:opacity-40">اعمال روی محصولات انتخاب‌شده</button></div></section></div>;
+  return <div className="fixed inset-0 z-30 flex items-end justify-center"><button onClick={onClose} className="absolute inset-0 bg-oxblood-dark/45" aria-label="بستن"/><section className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-5xl sm:p-8"><button onClick={onClose} className="absolute left-5 top-5 text-oxblood"><X/></button><h2 className="text-2xl font-black">مرحله ۲ · قیمت‌گذاری گروهی</h2><p className="mt-2 text-sm text-oxblood-dark/60">سطح‌های زیر روی {count.toLocaleString("fa-IR")} محصول انتخاب‌شده اعمال می‌شوند.</p><div className="mt-5 rounded-lg border border-oxblood/10 bg-white p-3"><div className="flex items-center justify-between"><h4 className="font-black">سطح‌های قیمت‌گذاری</h4><button type="button" onClick={() => setLevels([...levels, { id: `bulk-${Date.now()}`, label: "", unit: "", quantity: "", price: 0, roundingMode: "none" }])} className="rounded-lg border border-oxblood/20 px-3 py-1.5 text-xs font-bold text-oxblood">+ افزودن سطح</button></div><p className="mt-2 text-xs text-oxblood-dark/55">درصد سود برای هر محصول از قیمت خرید خودش محاسبه می‌شود. وارد کردن قیمت فروش، آن را به‌صورت قیمت ثابت برای همهٔ محصولات اعمال می‌کند.</p><div className="mt-3 space-y-2">{levels.map((level, index) => <div key={level.id} className="grid gap-2 rounded-lg bg-blush p-2 sm:grid-cols-8"><input value={level.label} onChange={(event) => update(index, { label: event.target.value })} placeholder="نام سطح" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.quantity} onChange={(event) => update(index, { quantity: event.target.value })} placeholder="مقدار" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.unit} onChange={(event) => update(index, { unit: event.target.value })} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="" disabled>واحد</option>{units.map((unit) => <option key={unit}>{unit}</option>)}</select><input value={level.percent ?? ""} onChange={(event) => update(index, { percent: event.target.value === "" ? undefined : Number(event.target.value), price: 0 })} placeholder="درصد سود" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><input value={level.price || ""} onChange={(event) => update(index, { price: parseAmount(event.target.value), percent: undefined })} placeholder="قیمت فروش" type="text" inputMode="numeric" className="rounded border border-oxblood/15 bg-white p-2 text-xs font-bold text-oxblood"/><input value={level.rounding ?? ""} onChange={(event) => update(index, { rounding: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="مبلغ رند" type="number" className="rounded border border-oxblood/15 p-2 text-xs"/><select value={level.roundingMode || "none"} onChange={(event) => update(index, { roundingMode: event.target.value as ProductLevel["roundingMode"] })} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select><button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button></div>)}</div></div><div className="mt-4 flex flex-wrap gap-2"><button disabled={!levels.length} onClick={() => onApply(levels)} className="rounded-lg bg-oxblood px-5 py-2 font-bold text-white disabled:opacity-40">اعمال روی محصولات انتخاب‌شده</button><button type="button" onClick={() => onApply(null)} className="rounded-lg border border-oxblood/20 px-5 py-2 font-bold text-oxblood">بازگشت به قیمت پیش‌فرض</button></div></section></div>;
 }
 
 function ColumnLabelForm({
@@ -1208,6 +1334,7 @@ function Catalog({
   labels,
   categories,
   selectedCategoryId,
+  settings,
   contact,
   onSelect,
 }: {
@@ -1215,6 +1342,7 @@ function Catalog({
   labels: string[];
   categories: { id: string; name: string }[];
   selectedCategoryId: string | null;
+  settings: AppSettings;
   contact: CatalogContact;
   onSelect: (product: Product) => void;
 }) {
@@ -1228,7 +1356,7 @@ function Catalog({
   return (
     <section className="catalog-page">
       <div className="catalog-hero">
-        <div className="catalog-hero-mark"><BookOpen size={25}/></div>
+        <BrandLogo inverted />
         <div className="min-w-0 flex-1">
           <span className="catalog-eyebrow">بازارک · آسیاب صداقت</span>
           <h1>{selectedCategory ? `کاتالوگ ${selectedCategory.name}` : "کاتالوگ محصولات"}</h1>
@@ -1241,21 +1369,22 @@ function Catalog({
       {(contact.mobile || contact.phone || contact.address) && <section className="catalog-contact"><div className="catalog-contact-icon">☎</div><div><h2>اطلاعات تماس و سفارش</h2><div>{contact.mobile && <a dir="ltr" href={`tel:${phoneDigits(contact.mobile)}`}>همراه: {contact.mobile}</a>}{contact.phone && <a dir="ltr" href={`tel:${phoneDigits(contact.phone)}`}>ثابت: {contact.phone}</a>}{contact.address && <span>آدرس: {contact.address}</span>}</div></div></section>}
       <div className="catalog-products">
         {products.map((product) => (
+          <ProductErrorBoundary key={product.id} name={product.name}>
           <button
-            key={product.id}
             onClick={() => onSelect(product)}
             className="catalog-product-card"
           >
-            <div className="catalog-product-image">{product.imageUrl ? <img src={product.imageUrl} alt={product.name} /> : <span>تصویر محصول</span>}</div>
+            <div className="catalog-product-image">{product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" decoding="async" width={88} height={100} /> : <span>تصویر محصول</span>}</div>
             <div className="catalog-product-info"><b>{product.name}</b>
               {product.description && <p>{product.description}</p>}
               <div className="catalog-prices">
-                {(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) }))).map((level) => (
-                  <span key={level.id}><small>{level.label}</small><strong>{money(levelPrice(product, level))}</strong></span>
+                {capturePricing(product, settings).levels.map((level, index) => (
+                  <span key={`${level.id}-${index}`}><small>{level.label}</small><strong>{money(level.finalPrice)}</strong></span>
                 ))}
               </div>
             </div>
           </button>
+          </ProductErrorBoundary>
         ))}
       </div>
       {selectedCategoryId && !products.length && <p className="mt-6 rounded-xl border border-oxblood/10 bg-white p-4 text-sm text-oxblood-dark/55">برای این دسته هنوز محصول فعالی ثبت نشده است. در پنل محصول، تیک دسته‌بندی را بررسی کنید.</p>}
@@ -1263,8 +1392,46 @@ function Catalog({
   );
 }
 
+function roundingDescription(level: PricingLevelSnapshot, snapshot: PricingSnapshot) {
+  const local = level.percent !== undefined && level.rounding && level.roundingMode !== "none"
+    ? `رند ${level.roundingMode === "up" ? "بالا" : "پایین"}: ${money(level.rounding)} ${currencyTitle(snapshot.currency)}` : "بدون رند اختصاصی";
+  return `${local} · ${snapshot.priceRounding ? `رند اپلیکیشن: ${money(snapshot.priceRounding)} تومان` : "بدون رند اپلیکیشن"}`;
+}
+
+function LevelPricingFacts({ level, snapshot }: { level: PricingLevelSnapshot; snapshot: PricingSnapshot }) {
+  return <div className="mt-2 space-y-1 text-xs leading-6 text-oxblood-dark/65">
+    <p>{level.percent === undefined ? "قیمت ثابت" : `درصد سود: ${money(level.percent)}٪`} · {level.quantity || "۱"} {level.unit}</p>
+    <p>قبل از گرد کردن: {money(level.exactPrice)} {currencyTitle(snapshot.currency)}</p>
+    <p>{roundingDescription(level, snapshot)}</p>
+    {level.effectivePercent !== undefined && <p>سود پس از گرد کردن: {money(level.effectivePercent)}٪</p>}
+  </div>;
+}
+
+function HistoryPricing({ title, snapshot }: { title: string; snapshot: PricingSnapshot }) {
+  const levels = (Array.isArray(snapshot?.levels) ? snapshot.levels : []).filter((level) => level && typeof level === "object");
+  return <section className="rounded-lg bg-blush p-3">
+    <h4 className="font-bold">{title}</h4>
+    <p className="mt-1 text-xs">قیمت خرید: {money(snapshot?.basePrice)} {currencyTitle(snapshot?.currency)}</p>
+    <div className="mt-2 space-y-2">{levels.map((level, index) => <div key={`${level?.id || index}-${index}`} className="rounded-lg bg-white p-3">
+      <b>{level.label}: {money(level.finalPrice)} {currencyTitle(snapshot.currency)}</b>
+      <LevelPricingFacts level={level} snapshot={snapshot} />
+    </div>)}</div>
+  </section>;
+}
+
+function historyExportText(change: PriceHistory, fallbackCurrency: Currency) {
+  const snapshotText = (snapshot: PricingSnapshot) => {
+    const levels = (Array.isArray(snapshot?.levels) ? snapshot.levels : []).filter((level) => level && typeof level === "object");
+    return `خرید: ${money(snapshot?.basePrice)} ${currencyTitle(snapshot?.currency)} | ${levels.map((level) => `${level.label}: ${money(level.finalPrice)} ${currencyTitle(snapshot.currency)}؛ ${level.percent === undefined ? "قیمت ثابت" : `سود ${money(level.percent)}٪`}؛ قبل از رند ${money(level.exactPrice)}؛ ${roundingDescription(level, snapshot)}؛ سود پس از رند ${level.effectivePercent === undefined ? "—" : `${money(level.effectivePercent)}٪`}`).join(" | ")}`;
+  };
+  return change.previousPricing && change.pricing
+    ? `${dateTime(change.changedAt)} | قبل: ${snapshotText(change.previousPricing)} | بعد: ${snapshotText(change.pricing)}`
+    : `${dateTime(change.changedAt)} | خرید: ${money(change.previousPrice)} ← ${money(change.price)} ${currencyTitle(change.currency || fallbackCurrency)} | درصد و رند قبلی ثبت نشده`;
+}
+
 function Detail({
   product,
+  settings,
   labels,
   categories,
   admin,
@@ -1276,6 +1443,7 @@ function Detail({
   onDelete,
 }: {
   product: Product;
+  settings: AppSettings;
   labels: string[];
   categories: { id: string; name: string }[];
   admin: boolean;
@@ -1293,10 +1461,14 @@ function Detail({
   const units = ["بسته", "عدد", "مثقال", "لیتر", "کارتن", "گرم", "کیلوگرم"];
   const [customUnit, setCustomUnit] = useState(!units.includes(product.unit));
   const [selectedUnit, setSelectedUnit] = useState(units.includes(product.unit) ? product.unit : "__custom__");
-  const [levels, setLevels] = useState<ProductLevel[]>(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) })));
+  const [levels, setLevels] = useState<ProductLevel[]>(() => capturePricing(product, settings).levels);
   useEffect(() => {
-    setLevels((current) => current.map((level) => level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(product.price, level) }));
+    setLevels((current) => (Array.isArray(current) ? current : []).flatMap((level) => {
+      if (!level || typeof level !== "object") return [];
+      return [level.percent === undefined ? level : { ...level, price: levelPriceForBasePrice(product.price, level) }];
+    }));
   }, [product.price]);
+  const currentPricing = capturePricing(product, settings);
   const levelBasePrice = (level: ProductLevel) => latestPurchase(product) * (parseAmount(level.quantity) || 1);
   const updateLevelPercent = (index: number, percent: number | undefined) => {
     setLevels(levels.map((level, levelIndex) => levelIndex === index
@@ -1328,7 +1500,7 @@ function Detail({
           <CalendarDays size={14} />
           تاریخ ثبت تغییر قیمت: {date(product.updated)}
         </p>
-        <p className="mt-1 flex items-center gap-2 text-xs text-oxblood-dark/45"><CalendarDays size={14} />تاریخ ثبت آخرین فاکتور: {product.invoices[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</p>
+        <p className="mt-1 flex items-center gap-2 text-xs text-oxblood-dark/45"><CalendarDays size={14} />تاریخ ثبت آخرین فاکتور: {product.invoices?.[0] ? date(product.invoices[0].registeredAt) : "ثبت نشده"}</p>
         {product.catalogUrl && (
           <a
             href={product.catalogUrl}
@@ -1342,8 +1514,12 @@ function Detail({
           </a>
         )}
         <div className="mt-5 grid gap-2 sm:grid-cols-3">
-          {(product.levels?.length ? product.levels : labels.map((label, index) => ({ id: `default-${index}`, label, unit: product.unit, quantity: "۱", price: sale(product, index) }))).map((level) => (
-            <div key={level.id} className="rounded-lg border border-oxblood/10 bg-blush p-3 text-center"><b className="block text-sm">{level.label}</b><strong className="mt-3 block text-lg font-black text-oxblood">{money(levelPrice(product, level))}</strong></div>
+          {currentPricing.levels.map((level, index) => (
+            <div key={`${level.id}-${index}`} className="rounded-lg border border-oxblood/10 bg-blush p-3 text-center">
+              <b className="block text-sm">{level.label}</b>
+              <strong className="mt-3 block text-lg font-black text-oxblood">{money(level.finalPrice)} {currencyTitle(settings.currency)}</strong>
+              {admin && <LevelPricingFacts level={level} snapshot={currentPricing} />}
+            </div>
           ))}
         </div>
         {admin && (
@@ -1371,12 +1547,12 @@ function Detail({
                   <select value={level.unit} onChange={(event) => setLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, unit: event.target.value } : item))} className="rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="" disabled>واحد</option>{units.map((unit) => <option key={unit}>{unit}</option>)}</select>
                   <input value={level.percent ?? ""} onChange={(event) => updateLevelPercent(index, event.target.value === "" ? undefined : parseAmount(event.target.value))} placeholder="درصد سود" type="text" inputMode="decimal" className="rounded border border-oxblood/15 p-2 text-xs" />
                   <input value={level.price || ""} onChange={(event) => updateLevelPrice(index, parsePriceAmount(event.target.value))} placeholder="قیمت فروش" type="text" inputMode="numeric" className="rounded border border-oxblood/15 bg-white p-2 text-xs font-bold text-oxblood" />
-                  <input value={level.rounding ?? ""} onChange={(event) => setLevels(levels.map((item, itemIndex) => { if (itemIndex !== index) return item; const rounding = event.target.value === "" ? undefined : parseAmount(event.target.value); const next = { ...item, rounding }; return next.percent === undefined ? next : { ...next, price: levelPriceForBasePrice(product.price, next) }; }))} placeholder="گام رند (مثلاً ۱۰۰۰۰ ریال)" type="text" inputMode="numeric" className="rounded border border-oxblood/15 p-2 text-xs" />
-                  <div><select value={level.roundingMode || "none"} onChange={(event) => setLevels(levels.map((item, itemIndex) => { if (itemIndex !== index) return item; const next = { ...item, roundingMode: event.target.value as ProductLevel["roundingMode"] }; return next.percent === undefined ? next : { ...next, price: levelPriceForBasePrice(product.price, next) }; }))} className="w-full rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select><output className="mt-1 block text-center text-[10px] font-bold text-emerald-700">قیمت زنده: {money(level.price)}</output></div>
+                  <input value={level.rounding ?? ""} onChange={(event) => setLevels(levels.map((item, itemIndex) => { if (itemIndex !== index) return item; const rounding = event.target.value === "" ? undefined : parseAmount(event.target.value); const next = { ...item, rounding }; return next.percent === undefined ? next : { ...next, price: levelPriceForBasePrice(product.price, next) }; }))} placeholder={`گام رند (${currencyTitle(settings.currency)})`} type="text" inputMode="numeric" className="rounded border border-oxblood/15 p-2 text-xs" />
+                  <div><select value={level.roundingMode || "none"} onChange={(event) => setLevels(levels.map((item, itemIndex) => { if (itemIndex !== index) return item; const next = { ...item, roundingMode: event.target.value as ProductLevel["roundingMode"] }; return next.percent === undefined ? next : { ...next, price: levelPriceForBasePrice(product.price, next) }; }))} className="w-full rounded border border-oxblood/15 bg-white p-2 text-xs"><option value="none">بدون رند</option><option value="up">رند بالا</option><option value="down">رند پایین</option></select><output className="mt-1 block text-center text-[10px] font-bold text-emerald-700">قیمت نهایی: {money(roundSalePrice(levelPriceForBasePrice(product.price, level), settings))}</output></div>
                   <button type="button" onClick={() => setLevels(levels.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-oxblood/15 text-xs text-oxblood">حذف</button>
                 </div>)}</div>
               </div>
-              {!!categories.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={product.categoryIds.includes(category.id)} onChange={(event) => { void onCategoryChange(category.id, event.target.checked); }} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
+              {!!categories?.length && <div className="mt-4 flex flex-wrap gap-2"><span className="w-full text-sm font-black">دسته‌بندی محصول</span>{categories.map((category) => <label key={category.id} className="rounded-lg border border-oxblood/15 px-3 py-2 text-sm"><input name={`category-${category.id}`} type="checkbox" checked={hasCategory(product, category.id)} onChange={(event) => { void onCategoryChange(category.id, event.target.checked); }} className="ml-2 accent-oxblood" />{category.name}</label>)}</div>}
               <button type="submit" disabled={savingPricing} className="mt-3 rounded-lg bg-oxblood px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{savingPricing ? "در حال ذخیره..." : "ثبت اطلاعات"}</button>
               <button type="button" onClick={() => void onDelete()} className="mt-3 mr-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-bold text-red-700">حذف محصول</button>
             </form>
@@ -1386,9 +1562,9 @@ function Detail({
               فاکتورهای خرید
             </h3>
             <ul className="mt-3 space-y-2 text-sm">
-              {product.invoices.map((invoice, index) => (
+              {(product.invoices || []).map((invoice, index) => (
                 <li key={index} className="rounded-lg border border-oxblood/10 p-3">
-                  <span className="font-black text-oxblood">{money(invoice.price)} تومان</span>
+                  <span className="font-black text-oxblood">{money(invoice.price)} {currencyTitle(settings.currency)}</span>
                   <span className="mt-1 block text-xs text-oxblood-dark/45">
                     تاریخ ثبت فاکتور: {date(invoice.registeredAt)}
                   </span>
@@ -1399,11 +1575,17 @@ function Detail({
               <CalendarDays size={18} />
               تاریخچه تغییر قیمت
             </h3>
-            {product.priceHistory.length ? <ul className="mt-3 space-y-2 text-sm">
-              {sortedPriceHistory(product.priceHistory).map((change, index) => (
+            {(product.priceHistory || []).length ? <ul className="mt-3 space-y-2 text-sm">
+              {sortedPriceHistory(product.priceHistory || []).map((change, index) => (
                 <li key={`${change.changedAt}-${index}`} className="rounded-lg border border-oxblood/10 p-3">
-                  <span className="font-black text-oxblood">{money(change.previousPrice)} ← {money(change.price)} تومان</span>
                   <span className="mt-1 block text-xs text-oxblood-dark/45">{dateTime(change.changedAt)}</span>
+                  {change.previousPricing?.levels && change.pricing?.levels ? <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <HistoryPricing title="قبل از تغییر" snapshot={change.previousPricing} />
+                    <HistoryPricing title="بعد از تغییر" snapshot={change.pricing} />
+                  </div> : <>
+                    <span className="mt-2 block font-black text-oxblood">قیمت خرید: {money(change.previousPrice)} ← {money(change.price)} {currencyTitle(change.currency || settings.currency)}</span>
+                    <p className="mt-2 text-xs text-oxblood-dark/55">درصد سود و تنظیمات گرد کردن برای این سابقهٔ قدیمی ثبت نشده است.</p>
+                  </>}
                 </li>
               ))}
             </ul> : <p className="mt-2 text-xs text-oxblood-dark/45">هنوز تغییری برای قیمت این محصول ثبت نشده است.</p>}

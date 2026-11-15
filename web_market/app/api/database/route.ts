@@ -1,14 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mongoDatabase } from "@/lib/mongodb";
+<<<<<<< HEAD
 import { cacheGet, cacheSet, cacheInvalidate } from "@/lib/redis";
+=======
+import { levelPriceForBasePrice, recordPricingChange, type ProductLevel } from "@/app/lib/price-history";
+>>>>>>> refs/remotes/origin/main
 import { ADMIN_COOKIE, isValidAdminToken } from "@/app/lib/auth";
 
 export const runtime = "nodejs";
 
-const writableSections = new Set(["products", "settings", "catalog", "productCategory", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "productDelete", "mobileServices"]);
+const writableSections = new Set(["products", "settings", "catalog", "productCategory", "tasks", "customerNotes", "customerSettings", "customers", "customerUpsert", "customerDelete", "customerFollowUp", "productDelete", "mobileServices", "priceRounding", "bulkLevels"]);
 
 type Database = Record<string, unknown>;
 type DatabaseDocument = Database & { _id: string };
+
+const withoutUndefined = (level: Record<string, unknown>) => Object.fromEntries(Object.entries(level).filter(([, value]) => value !== undefined));
+
+const levelsForProduct = (productId: number, price: unknown, template: Record<string, unknown>[] | null): ProductLevel[] => {
+  if (template === null) return [];
+  return template.map((level, index) => {
+    const copy = withoutUndefined({ ...level, id: `${productId}-${level.id || index}` });
+    const priced = copy.percent === undefined ? copy : { ...copy, price: levelPriceForBasePrice(Number(price) || 0, copy as ProductLevel) };
+    return priced as ProductLevel;
+  });
+};
 
 const readDatabase = async () => {
   const collection = (await mongoDatabase()).collection<DatabaseDocument>("appState");
@@ -36,6 +51,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
     const section = request.nextUrl.searchParams.get("section");
+    if (section === "customerDirectory") {
+      const stored = await (await mongoDatabase()).collection<DatabaseDocument>("appState").findOne(
+        { _id: "primary" },
+        { projection: { _id: 0, customers: 1, customerSettings: 1, customerNotes: 1 } },
+      );
+      if (!stored) throw new Error("MongoDB data has not been initialized");
+      return NextResponse.json(stored);
+    }
     if (section === "meta") {
       const cached = await cacheGet<Database>("db:meta");
       if (cached.hit && cached.value) return NextResponse.json(cached.value);
@@ -59,9 +82,36 @@ export async function GET(request: NextRequest) {
         { $project: { items: { $slice: [`$${section}`, offset, limit] }, total: { $size: { $ifNull: [`$${section}`, []] } } } },
       ]).toArray();
       if (!page) throw new Error("MongoDB data has not been initialized");
+<<<<<<< HEAD
       const response = { items: page.items, offset, limit, total: page.total, hasMore: offset + page.items.length < page.total };
       await cacheSet(pageScope, response);
       return NextResponse.json(response);
+=======
+      // Price history is loaded on its own. Keeping it out of the product list
+      // stops the first screen from waiting on every past price snapshot.
+      const items = section === "products" ? page.items.map((item) => {
+        if (!item || typeof item !== "object") return item;
+        const rest = { ...(item as Record<string, unknown>) };
+        delete rest.priceHistory;
+        return rest;
+      }) : page.items;
+      return NextResponse.json({ items, offset, limit, total: page.total, hasMore: offset + page.items.length < page.total });
+    }
+    if (section === "productHistories") {
+      const offset = Math.max(0, Number.parseInt(request.nextUrl.searchParams.get("offset") || "0", 10) || 0);
+      const limit = Math.min(2500, Math.max(1, Number.parseInt(request.nextUrl.searchParams.get("limit") || "200", 10) || 200));
+      const stored = await (await mongoDatabase()).collection<DatabaseDocument>("appState").findOne(
+        { _id: "primary" },
+        { projection: { products: 1 } },
+      );
+      if (!stored) throw new Error("MongoDB data has not been initialized");
+      const products = Array.isArray(stored.products) ? stored.products : [];
+      const items = products.slice(offset, offset + limit).map((product) => {
+        const item = product as { id?: unknown; priceHistory?: unknown };
+        return { id: item.id, priceHistory: Array.isArray(item.priceHistory) ? item.priceHistory : [] };
+      });
+      return NextResponse.json({ items, offset, limit, total: products.length, hasMore: offset + items.length < products.length });
+>>>>>>> refs/remotes/origin/main
     }
     return NextResponse.json(await cachedReadDatabase());
   } catch {
@@ -79,10 +129,38 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "invalid database section" }, { status: 400 });
     }
     const collection = (await mongoDatabase()).collection<DatabaseDocument>("appState");
+<<<<<<< HEAD
     // Every successful write below mutates the shared appState document. Bump
     // the cache revision up-front so all readers pick up fresh data on the
     // next request; the read at the end of this handler also bypasses cache.
     await cacheInvalidate();
+=======
+    if (section === "priceRounding") {
+      if (![0, 100, 1000].includes(data)) return NextResponse.json({ error: "invalid price rounding" }, { status: 400 });
+      // Compare the read values before appending snapshots, so a concurrent
+      // product edit cannot leave the historical percentages out of sync.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const current = await collection.findOne({ _id: "primary" }, { projection: { products: 1, settings: 1 } });
+        if (!current) return NextResponse.json({ error: "database not initialized" }, { status: 404 });
+        const before = (current.settings || {}) as Record<string, unknown>;
+        const after = { ...before, priceRounding: data };
+        const changedAt = new Date().toISOString();
+        const updates: Record<string, unknown> = { "settings.priceRounding": data, updatedAt: new Date() };
+        const products = (Array.isArray(current.products) ? current.products : []).map((value, index) => {
+          const product = value as Record<string, unknown>;
+          const priceHistory = recordPricingChange(product, product, before, after, changedAt);
+          updates[`products.${index}.priceHistory`] = priceHistory;
+          return { ...product, priceHistory };
+        });
+        const result = await collection.updateOne(
+          { _id: "primary", products: current.products ?? { $exists: false }, settings: current.settings ?? { $exists: false } },
+          { $set: updates },
+        );
+        if (result.matchedCount) return NextResponse.json({ products, settings: after });
+      }
+      return NextResponse.json({ error: "concurrent product update; retry" }, { status: 409 });
+    }
+>>>>>>> refs/remotes/origin/main
     if (section === "customerFollowUp") {
       const followUp = data as { customerId?: number; date?: string; note?: string };
       if (!followUp.customerId || !String(followUp.note || "").trim()) return NextResponse.json({ error: "invalid follow-up" }, { status: 400 });
@@ -160,6 +238,38 @@ export async function PUT(request: NextRequest) {
       await collection.updateOne({ _id: "primary" }, { $set: { customers: [...merged.values()], updatedAt: new Date() } }, { upsert: true });
       return NextResponse.json(await readDatabase());
     }
+    // Bulk pricing touches only the selected products. Sending and returning the
+    // whole catalog made this request outlive the product-loading timeout.
+    if (section === "bulkLevels") {
+      const payload = data as { ids?: unknown; levels?: unknown };
+      const ids = Array.isArray(payload?.ids) ? [...new Set(payload.ids.map(Number).filter((id) => Number.isFinite(id)))] : [];
+      const levelsAreValid = payload?.levels === null || (Array.isArray(payload?.levels) && payload.levels.every((level) => level && typeof level === "object"));
+      if (!ids.length || ids.length > 2000 || !levelsAreValid) return NextResponse.json({ error: "invalid bulk levels" }, { status: 400 });
+      const template = payload.levels === null ? null : (payload.levels as Record<string, unknown>[]);
+      const current = await collection.findOne({ _id: "primary" }, { projection: { products: 1, settings: 1 } });
+      if (!current) return NextResponse.json({ error: "database not initialized" }, { status: 404 });
+      const products = Array.isArray(current.products) ? current.products : [];
+      const settings = (current.settings || {}) as Record<string, unknown>;
+      const wanted = new Set(ids);
+      const changedAt = new Date().toISOString();
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      const changed: Record<string, unknown>[] = [];
+      products.forEach((value, index) => {
+        const product = value as Record<string, unknown>;
+        const id = Number(product.id);
+        if (!wanted.has(id)) return;
+        const levels = levelsForProduct(id, product.price, template);
+        const next = { ...product, levels, updated: changedAt };
+        const priceHistory = recordPricingChange(product, next, settings, settings, changedAt);
+        updates[`products.${index}.levels`] = levels;
+        updates[`products.${index}.priceHistory`] = priceHistory;
+        updates[`products.${index}.updated`] = changedAt;
+        changed.push({ id, levels, priceHistory, updated: changedAt });
+      });
+      if (!changed.length) return NextResponse.json({ error: "products not found" }, { status: 404 });
+      await collection.updateOne({ _id: "primary" }, { $set: updates });
+      return NextResponse.json({ products: changed });
+    }
     // Categories live in settings while product membership lives in categoryIds.
     // Persist them together so a later product update cannot overwrite the
     // category list (or leave it out of sync with product assignments).
@@ -169,30 +279,32 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: "invalid catalog" }, { status: 400 });
       }
       const current = await collection.findOne({ _id: "primary" }, { projection: { products: 1, settings: 1 } });
+      const productKey = (item: Record<string, unknown>) => `id:${String(item.id ?? "")}`;
       const previous = new Map<string, Record<string, unknown>>();
       for (const product of Array.isArray(current?.products) ? current.products : []) {
         const item = product as Record<string, unknown>;
-        previous.set(`id:${String(item.id ?? "")}`, item);
-        previous.set(`name:${String(item.name ?? "").trim()}`, item);
+        previous.set(productKey(item), item);
       }
-      const incomingProductKeys = new Set(catalog.products.flatMap((product) => {
-        const item = product as Record<string, unknown>;
-        return [`id:${String(item.id ?? "")}`, `name:${String(item.name ?? "").trim()}`];
-      }));
+      const incomingProductKeys = new Set(catalog.products.map((product) => productKey(product as Record<string, unknown>)));
       const protectedProducts: Record<string, unknown>[] = catalog.products.map((product) => {
         const item = product as Record<string, unknown>;
-        const old = previous.get(`id:${String(item.id ?? "")}`) || previous.get(`name:${String(item.name ?? "").trim()}`);
+        const old = previous.get(productKey(item));
         const oldCategories = Array.isArray(old?.categoryIds) ? old.categoryIds : [];
         const nextCategories = Array.isArray(item.categoryIds) ? item.categoryIds : [];
         // Imports and stale browser tabs may contain only price/name fields.
         // Keep product metadata that they do not explicitly provide.
+        // An explicit levels array, including an empty one, is intentional:
+        // clearing custom levels restores the default percentage columns.
+        const levels = Object.prototype.hasOwnProperty.call(item, "levels")
+          ? (Array.isArray(item.levels) ? item.levels.filter((level) => level && typeof level === "object") : [])
+          : (Array.isArray(old?.levels) ? old.levels : []);
         return {
           ...old,
           ...item,
           unit: String(item.unit || old?.unit || "کیلوگرم"),
           description: String(item.description || old?.description || ""),
-          categoryIds: [...new Set([...oldCategories, ...nextCategories])],
-          levels: Array.isArray(item.levels) && item.levels.length ? item.levels : old?.levels || [],
+          categoryIds: [...new Set([...oldCategories, ...nextCategories].map((categoryId) => String(categoryId)))],
+          levels,
           percentages: Array.isArray(item.percentages) && item.percentages.length ? item.percentages : old?.percentages || [],
           rounding: Array.isArray(item.rounding) && item.rounding.length ? item.rounding : old?.rounding || [],
           roundingEnabled: Array.isArray(item.roundingEnabled) && item.roundingEnabled.length ? item.roundingEnabled : old?.roundingEnabled || [],
@@ -202,16 +314,22 @@ export async function PUT(request: NextRequest) {
         };
       });
       // The manager UI loads products in pages. Keep untouched pages in MongoDB
-      // when saving an edit from the currently loaded page.
+      // when saving an edit from the currently loaded page. Identity is the
+      // product id; a shared name must not erase the products that were not sent.
       for (const product of Array.isArray(current?.products) ? current.products : []) {
         const item = product as Record<string, unknown>;
-        if (!incomingProductKeys.has(`id:${String(item.id ?? "")}`) && !incomingProductKeys.has(`name:${String(item.name ?? "").trim()}`)) protectedProducts.push(item);
+        if (!incomingProductKeys.has(productKey(item))) protectedProducts.push(item);
       }
       const incomingSettings = catalog.settings as Record<string, unknown>;
       const oldSettings = (current?.settings || {}) as Record<string, unknown>;
       const oldCategories = Array.isArray(oldSettings.categories) ? oldSettings.categories : [];
       const nextCategories = Array.isArray(incomingSettings.categories) ? incomingSettings.categories : [];
-      const protectedSettings = { ...oldSettings, ...incomingSettings, categories: [...new Map([...oldCategories, ...nextCategories].map((category) => [String((category as { id?: unknown }).id ?? ""), category])).values()] };
+      const protectedSettings: Record<string, unknown> = { ...oldSettings, ...incomingSettings, categories: [...new Map([...oldCategories, ...nextCategories].map((category) => [String((category as { id?: unknown }).id ?? ""), category])).values()] };
+      const changedAt = new Date().toISOString();
+      for (const product of protectedProducts) {
+        const old = previous.get(productKey(product));
+        if (old) product.priceHistory = recordPricingChange(old, product, oldSettings, protectedSettings, changedAt);
+      }
       await collection.updateOne(
         { _id: "primary" },
         { $set: { products: protectedProducts, settings: protectedSettings, updatedAt: new Date() } },
