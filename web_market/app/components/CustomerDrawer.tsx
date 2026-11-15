@@ -40,7 +40,7 @@ export default function CustomerDrawer() {
     return matches.slice(0, 100);
   }, [customers, query, categoryFilter, customerSettings.assignments]);
   return <>
-    <button type="button" onClick={() => { setOpen(true); void loadCustomers(); }} className="fixed left-4 top-[calc(50%-3.5rem)] z-10 inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-black text-oxblood shadow-xl ring-1 ring-oxblood/15 transition hover:bg-blush"><Users size={18} /> مشتریان</button>
+    <button type="button" onClick={() => { setOpen(true); void loadCustomers(); }} className="fixed left-4 top-[calc(50%-3.5rem)] z-10 inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-black text-oxblood shadow-xl ring-1 ring-oxblood/15 transition hover:bg-blush/60"><Users size={18} /> مشتریان</button>
     {open && <div className="fixed inset-0 z-40 flex justify-end">
       <button type="button" onClick={() => setOpen(false)} className="absolute inset-0 bg-oxblood-dark/40" aria-label="بستن پنل مشتریان" />
       <aside className="relative flex h-full w-[92vw] max-w-[420px] flex-col bg-white shadow-2xl animate-in slide-in-from-right duration-200">

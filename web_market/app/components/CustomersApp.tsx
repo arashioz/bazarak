@@ -634,7 +634,7 @@ function JalaliDatePicker({
             <button
               type="button"
               onClick={() => setCursor(shiftDays(cursor, -32))}
-              className="rounded p-1 hover:bg-blush"
+              className="rounded p-1 hover:bg-blush/60"
             >
               <ChevronRight size={18} />
             </button>
@@ -642,7 +642,7 @@ function JalaliDatePicker({
             <button
               type="button"
               onClick={() => setCursor(shiftDays(cursor, 32))}
-              className="rounded p-1 hover:bg-blush"
+              className="rounded p-1 hover:bg-blush/60"
             >
               <ChevronLeft size={18} />
             </button>
@@ -670,7 +670,7 @@ function JalaliDatePicker({
                     onChange(dateValue);
                     setOpen(false);
                   }}
-                  className={`h-8 rounded-md text-xs font-bold ${selected ? "bg-oxblood text-white" : today ? "border border-oxblood text-oxblood" : "hover:bg-blush"}`}
+                  className={`h-8 rounded-md text-xs font-bold ${selected ? "bg-oxblood text-white" : today ? "border border-oxblood text-oxblood" : "hover:bg-blush/60"}`}
                 >
                   {jalaliParts(date).day}
                 </button>
@@ -684,7 +684,7 @@ function JalaliDatePicker({
               setCursor(new Date());
               setOpen(false);
             }}
-            className="mt-3 w-full rounded-lg bg-blush p-2 text-xs font-bold text-oxblood"
+            className="mt-3 w-full rounded-lg bg-white p-2 ring-1 ring-oxblood/10 text-xs font-bold text-oxblood"
           >
             امروز
           </button>
@@ -779,7 +779,7 @@ function CustomerDetail({
     const title = document.querySelector(".fixed.inset-0.z-20 h2") as HTMLElement;
     const form = document.createElement("form");
     form.className =
-      "customer-phone-editor mt-4 rounded-xl border border-oxblood/10 bg-blush p-3";
+      "customer-phone-editor mt-4 rounded-xl border border-oxblood/10 bg-white p-3 ring-1 ring-oxblood/10";
     const safeNumber = (value: string) => value.replace(/[^0-9۰-۹٠-٩+ -]/g, "");
     form.innerHTML = `<h3 class="font-black">شماره‌های تماس</h3><div class="mt-3 grid gap-2 sm:grid-cols-2"><label class="text-xs font-bold">موبایل<input name="mobile" dir="ltr" inputmode="tel" class="mt-1 w-full rounded-lg border border-oxblood/15 bg-white p-2 text-right font-normal" value="${safeNumber(customer.mobile || "")}"></label><label class="text-xs font-bold">تلفن<input name="phone" dir="ltr" inputmode="tel" class="mt-1 w-full rounded-lg border border-oxblood/15 bg-white p-2 text-right font-normal" value="${safeNumber(customer.phone || "")}"></label></div><button class="mt-3 rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white">ذخیره شماره‌ها</button>`;
     form.addEventListener("submit", (event) => {
@@ -799,7 +799,7 @@ function CustomerDetail({
     const title = document.querySelector(".fixed.inset-0.z-20 h2") as HTMLElement;
     const form = document.createElement("form");
     form.className =
-      "customer-core-editor mt-4 rounded-xl border border-oxblood/10 bg-blush p-3";
+      "customer-core-editor mt-4 rounded-xl border border-oxblood/10 bg-white p-3 ring-1 ring-oxblood/10";
     const safeText = (value: string) =>
       value.replace(
         /[&<>\"']/g,
@@ -868,7 +868,7 @@ function CustomerDetail({
             : customer.group}
         </span>
         <h2 className="mt-3 text-xl font-black">{customer.name}</h2>
-        <form onSubmit={saveProfile} className="mt-4 rounded-xl border border-oxblood/10 bg-blush p-3">
+        <form onSubmit={saveProfile} className="mt-4 rounded-xl border border-oxblood/10 bg-white p-3 ring-1 ring-oxblood/10">
           <h3 className="font-black">ویرایش اطلاعات مشتری</h3>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-bold">نام مشتری<input required value={name} onChange={(event) => setName(event.target.value)} className="mt-1 w-full rounded-lg border border-oxblood/15 bg-white p-2 font-normal"/></label>
@@ -885,7 +885,7 @@ function CustomerDetail({
               {followUps.length.toLocaleString("fa-IR")} پیگیری
             </span>
           </div>
-          <div className="mt-3 rounded-xl border border-oxblood/10 bg-blush p-3">
+          <div className="mt-3 rounded-xl border border-oxblood/10 bg-white p-3 ring-1 ring-oxblood/10">
             <JalaliDatePicker value={followUpDate} onChange={setFollowUpDate} />
             <textarea
               value={followUpNote}

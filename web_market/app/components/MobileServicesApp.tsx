@@ -538,7 +538,7 @@ export default function MobileServicesApp() {
               <button
                 type="button"
                 onClick={() => setLimit((current) => Math.min(current + pageSize, allRows.length))}
-                className="rounded-lg border border-oxblood/20 bg-white px-4 py-2 font-bold text-oxblood transition hover:bg-blush"
+                className="rounded-lg border border-oxblood/20 bg-white px-4 py-2 font-bold text-oxblood transition hover:bg-blush/60"
               >
                 بارگذاری سوابق بیشتر
               </button>
@@ -633,14 +633,14 @@ function CustomerHistory({
         <button
           type="button"
           onClick={onClose}
-          className="float-left rounded-full p-1 hover:bg-blush"
+          className="float-left rounded-full p-1 hover:bg-blush/60"
         >
           <X />
         </button>
         <h2 className="text-xl font-black">{record.customerName}</h2>
         <form
           onSubmit={update}
-          className="mt-4 rounded-xl border border-oxblood/10 bg-blush p-3"
+          className="mt-4 rounded-xl border border-oxblood/10 bg-white p-3 ring-1 ring-oxblood/10"
         >
           <h3 className="font-black">ویرایش مشتری خدمات سیار</h3>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -682,7 +682,7 @@ function CustomerHistory({
         <div className="mt-6 grid grid-cols-2 rounded-xl bg-blush p-1 text-sm font-bold"><button type="button" onClick={() => setSection("services")} className={`rounded-lg py-2 ${section === "services" ? "bg-white text-oxblood shadow-sm" : "text-oxblood/55"}`}>سوابق خدمات</button><button type="button" onClick={() => setSection("followUps")} className={`rounded-lg py-2 ${section === "followUps" ? "bg-white text-oxblood shadow-sm" : "text-oxblood/55"}`}>پیگیری مشتری ({followUps.length.toLocaleString("fa-IR")})</button></div>
         {section === "services" ? <><h3 className="mt-5 font-black">تاریخچه خدمات</h3><div className="mt-3 space-y-2">
           {history.map((x) => (
-            <article key={x.id} className="rounded-xl bg-blush p-3">
+            <article key={x.id} className="rounded-xl bg-white p-3 ring-1 ring-oxblood/10">
               <div className="flex justify-between gap-3">
                 <b>
                   {displayJalaliDate(x.date)} · {x.serviceType}
@@ -708,7 +708,7 @@ function CustomerHistory({
               </div>
             </article>
           ))}
-        </div></> : <section className="mt-5"><h3 className="font-black">سابقهٔ پیگیری</h3><form onSubmit={saveFollowUp} className="mt-3 rounded-xl border border-oxblood/10 bg-blush p-3"><MobileJalaliDatePicker value={followUpDate} onChange={setFollowUpDate}/><label className="mt-3 block text-xs font-bold">یادداشت پیگیری<textarea required value={followUpNote} onChange={(event) => setFollowUpNote(event.target.value)} rows={3} placeholder="شرح پیگیری جدید..." className="mt-1 w-full rounded-lg border p-2 font-normal" /></label><button disabled={savingFollowUp} className="mt-3 rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white disabled:opacity-50">{savingFollowUp ? "در حال ذخیره..." : "افزودن سابقه پیگیری"}</button></form>{followUps.length > 0 ? <div className="mt-3 space-y-3 border-r-2 border-oxblood/15 pr-4">{followUps.map((followUp, index) => <article key={`${followUp.date}-${index}`} className="relative rounded-xl border border-oxblood/10 bg-white p-3 shadow-sm before:absolute before:-right-[22px] before:top-4 before:h-3 before:w-3 before:rounded-full before:bg-oxblood"><b className="text-sm text-oxblood">{displayJalaliDate(followUp.date)}</b><p className="mt-2 whitespace-pre-wrap text-sm text-oxblood-dark/75">{followUp.note}</p></article>)}</div> : <p className="mt-4 text-sm text-oxblood/55">هنوز پیگیری ثبت نشده است.</p>}</section>}
+        </div></> : <section className="mt-5"><h3 className="font-black">سابقهٔ پیگیری</h3><form onSubmit={saveFollowUp} className="mt-3 rounded-xl border border-oxblood/10 bg-white p-3 ring-1 ring-oxblood/10"><MobileJalaliDatePicker value={followUpDate} onChange={setFollowUpDate}/><label className="mt-3 block text-xs font-bold">یادداشت پیگیری<textarea required value={followUpNote} onChange={(event) => setFollowUpNote(event.target.value)} rows={3} placeholder="شرح پیگیری جدید..." className="mt-1 w-full rounded-lg border p-2 font-normal" /></label><button disabled={savingFollowUp} className="mt-3 rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white disabled:opacity-50">{savingFollowUp ? "در حال ذخیره..." : "افزودن سابقه پیگیری"}</button></form>{followUps.length > 0 ? <div className="mt-3 space-y-3 border-r-2 border-oxblood/15 pr-4">{followUps.map((followUp, index) => <article key={`${followUp.date}-${index}`} className="relative rounded-xl border border-oxblood/10 bg-white p-3 shadow-sm before:absolute before:-right-[22px] before:top-4 before:h-3 before:w-3 before:rounded-full before:bg-oxblood"><b className="text-sm text-oxblood">{displayJalaliDate(followUp.date)}</b><p className="mt-2 whitespace-pre-wrap text-sm text-oxblood-dark/75">{followUp.note}</p></article>)}</div> : <p className="mt-4 text-sm text-oxblood/55">هنوز پیگیری ثبت نشده است.</p>}</section>}
       </section>
     </div>
   );
@@ -736,7 +736,7 @@ function MobileJalaliDatePicker({ value, onChange }: { value: string; onChange: 
   const days = Array.from({ length: Math.round((end.getTime() - first.getTime()) / 86400000) + 1 }, (_, index) => shiftMobileDate(first, index));
   const blanks = (first.getDay() + 1) % 7;
   const monthTitle = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "long" }).format(cursor);
-  return <><button type="button" onClick={() => setOpen(true)} className="flex w-full items-center justify-between rounded-lg border border-oxblood/15 bg-white p-2 text-sm"><span>{value || jalali()}</span><CalendarDays size={17} className="text-oxblood"/></button>{open && <div className="fixed inset-0 z-50 grid place-items-center bg-oxblood-dark/45 p-4"><section className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl"><div className="mb-3 flex items-center justify-between"><button type="button" onClick={() => setCursor(shiftMobileDate(cursor, -32))} className="rounded p-2 hover:bg-blush"><ChevronRight size={18}/></button><b className="text-sm">{monthTitle}</b><button type="button" onClick={() => setCursor(shiftMobileDate(cursor, 32))} className="rounded p-2 hover:bg-blush"><ChevronLeft size={18}/></button></div><div className="grid grid-cols-7 text-center text-xs text-oxblood/60">{"ش ی د س چ پ ج".split(" ").map((day) => <span key={day} className="py-1">{day}</span>)}</div><div className="grid grid-cols-7 gap-1">{Array.from({ length: blanks }).map((_, index) => <span key={index}/>)}{days.map((date) => { const dateValue = mobileJalaliDate(date); const selected = dateValue === value; return <button type="button" key={date.toISOString()} onClick={() => { onChange(dateValue); setOpen(false); }} className={`h-9 rounded-md text-xs font-bold ${selected ? "bg-oxblood text-white" : "hover:bg-blush"}`}>{mobileJalaliParts(date).day}</button>; })}</div><div className="mt-4 flex gap-2"><button type="button" onClick={() => { onChange(jalali()); setCursor(new Date()); setOpen(false); }} className="flex-1 rounded-lg bg-blush p-2 text-xs font-bold text-oxblood">امروز</button><button type="button" onClick={() => setOpen(false)} className="flex-1 rounded-lg border p-2 text-xs font-bold">بستن</button></div></section></div>}</>;
+  return <><button type="button" onClick={() => setOpen(true)} className="flex w-full items-center justify-between rounded-lg border border-oxblood/15 bg-white p-2 text-sm"><span>{value || jalali()}</span><CalendarDays size={17} className="text-oxblood"/></button>{open && <div className="fixed inset-0 z-50 grid place-items-center bg-oxblood-dark/45 p-4"><section className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl"><div className="mb-3 flex items-center justify-between"><button type="button" onClick={() => setCursor(shiftMobileDate(cursor, -32))} className="rounded p-2 hover:bg-blush/60"><ChevronRight size={18}/></button><b className="text-sm">{monthTitle}</b><button type="button" onClick={() => setCursor(shiftMobileDate(cursor, 32))} className="rounded p-2 hover:bg-blush/60"><ChevronLeft size={18}/></button></div><div className="grid grid-cols-7 text-center text-xs text-oxblood/60">{"ش ی د س چ پ ج".split(" ").map((day) => <span key={day} className="py-1">{day}</span>)}</div><div className="grid grid-cols-7 gap-1">{Array.from({ length: blanks }).map((_, index) => <span key={index}/>)}{days.map((date) => { const dateValue = mobileJalaliDate(date); const selected = dateValue === value; return <button type="button" key={date.toISOString()} onClick={() => { onChange(dateValue); setOpen(false); }} className={`h-9 rounded-md text-xs font-bold ${selected ? "bg-oxblood text-white" : "hover:bg-blush/60"}`}>{mobileJalaliParts(date).day}</button>; })}</div><div className="mt-4 flex gap-2"><button type="button" onClick={() => { onChange(jalali()); setCursor(new Date()); setOpen(false); }} className="flex-1 rounded-lg bg-white p-2 ring-1 ring-oxblood/10 text-xs font-bold text-oxblood">امروز</button><button type="button" onClick={() => setOpen(false)} className="flex-1 rounded-lg border p-2 text-xs font-bold">بستن</button></div></section></div>}</>;
 }
 function UnpaidDialog({
   records,
@@ -753,7 +753,7 @@ function UnpaidDialog({
         <button
           type="button"
           onClick={onClose}
-          className="float-left rounded-full p-1 hover:bg-blush"
+          className="float-left rounded-full p-1 hover:bg-blush/60"
         >
           <X />
         </button>
