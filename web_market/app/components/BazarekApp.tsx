@@ -20,15 +20,8 @@ import {
   Upload,
   X,
 } from "lucide-react";
-<<<<<<< HEAD
 import * as XLSX from "xlsx";
 import { Dispatch, FormEvent, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
-=======
-import BrandLogo from "./BrandLogo";
-import { capturePricing, levelPriceForBasePrice, type ProductLevel, type PriceHistory, type PricingSnapshot, type PricingLevelSnapshot } from "@/app/lib/price-history";
-import { roundSalePrice, type PriceRounding } from "@/app/lib/pricing";
-import { Component, FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
->>>>>>> refs/remotes/origin/main
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import CustomerDrawer from "./CustomerDrawer";
@@ -526,7 +519,6 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
       setError("خواندن فایل اکسل ناموفق بود. ستون نام محصول و قیمت خرید را بررسی کنید.");
     }
   };
-<<<<<<< HEAD
   const exportLabels = useMemo(() => Array.from({ length: Math.max(settings.columnLabels.length, ...products.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || products.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`), [products, settings.columnLabels]);
   const allColumns = useMemo(() => ["نام محصول", "قیمت خرید فعلی", "فعال", "توضیحات", "محصول برتر", "آخرین تغییر قیمت", "قیمت قبل از آخرین تغییر", "تاریخ آخرین تغییر", "تعداد تغییر قیمت", "تاریخچه تغییر قیمت", ...exportLabels], [exportLabels]);
 
@@ -547,29 +539,9 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
          if (selectedReportColumns.includes(label)) {
              row[label] = product.levels?.[index]?.price ?? sale(product, index);
          }
-=======
-  const exportExcel = async () => {
-    const XLSX = await import("xlsx");
-    const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...products.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || products.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`);
-    const rows = [...products].sort((a, b) => Number(b.featured) - Number(a.featured)).map((product) => {
-      const lastChange = sortedPriceHistory(product.priceHistory)[0];
-      return {
-        "نام محصول": product.name,
-        "قیمت خرید فعلی": product.price,
-        "فعال": product.active ? "فعال" : "غیرفعال",
-        "محصول برتر": product.featured ? "بله" : "خیر",
-        "آخرین تغییر قیمت": lastChange ? lastChange.price : "",
-        "قیمت قبل از آخرین تغییر": lastChange ? lastChange.previousPrice : "",
-        "تاریخ آخرین تغییر": lastChange ? dateTime(lastChange.changedAt) : "",
-        "تعداد تغییر قیمت": product.priceHistory.length,
-        "تاریخچه تغییر قیمت": sortedPriceHistory(product.priceHistory).map((change) => historyExportText(change, settings.currency || "toman")).join("\n"),
-        ...Object.fromEntries(exportLabels.map((label, index) => [label, capturePricing(product, settings).levels[index]?.finalPrice ?? roundSalePrice(sale(product, index), settings)])),
-      };
->>>>>>> refs/remotes/origin/main
     });
     return row;
   };
-<<<<<<< HEAD
 
   const exportExcel = () => {
     const rows = [...products].sort((a, b) => Number(b.featured) - Number(a.featured)).map(getProductRowData);
@@ -589,11 +561,6 @@ export default function BazarekApp({ initialView }: { initialView: View }) {
 
   const exportCategoryExcel = (category: { id: string; name: string }) => {
     const categoryProducts = products.filter((product) => product.categoryIds.includes(category.id)); const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...categoryProducts.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || categoryProducts.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`); const rows = categoryProducts.map((product) => ({ "نام محصول": product.name, "قیمت خرید فعلی": product.price, "فعال": product.active ? "فعال" : "غیرفعال", "توضیحات": product.description, ...Object.fromEntries(exportLabels.map((label, index) => [label, product.levels?.[index]?.price ?? sale(product, index)])) }));
-=======
-  const exportCategoryExcel = async (category: { id: string; name: string }) => {
-    const XLSX = await import("xlsx");
-    const categoryProducts = products.filter((product) => hasCategory(product, category.id)); const exportLabels = Array.from({ length: Math.max(settings.columnLabels.length, ...categoryProducts.map((product) => product.levels?.length || 0)) }, (_, index) => settings.columnLabels[index] || categoryProducts.find((product) => product.levels?.[index]?.label)?.levels?.[index]?.label || `سطح ${index + 1}`); const rows = categoryProducts.map((product) => ({ "نام محصول": product.name, "قیمت خرید فعلی": product.price, "فعال": product.active ? "فعال" : "غیرفعال", "توضیحات": product.description, ...Object.fromEntries(exportLabels.map((label, index) => [label, capturePricing(product, settings).levels[index]?.finalPrice ?? roundSalePrice(sale(product, index), settings)])) }));
->>>>>>> refs/remotes/origin/main
     const sheet = XLSX.utils.json_to_sheet(rows);
     sheet["!cols"] = [{ wch: 42 }, { wch: 18 }, { wch: 12 }, { wch: 40 }, ...exportLabels.map(() => ({ wch: 16 }))];
     const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, category.name.slice(0, 31) || "دسته"); XLSX.writeFile(book, `دسته ${category.name}.xlsx`);
@@ -812,14 +779,10 @@ function Header({
   return (
     <header className="sticky top-0 z-10 border-b border-oxblood/10 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-6">
       <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center">
-<<<<<<< HEAD
         <div>
           <b className="text-xl font-black text-oxblood">بازارک</b>
           <span className="mr-2 text-xs text-oxblood-dark/45">بازار فروش عمده آسیاب صداقت</span>
         </div>
-=======
-        <Link href="/" aria-label="بازارک؛ صفحه اصلی"><BrandLogo /></Link>
->>>>>>> refs/remotes/origin/main
         <div className="relative w-full sm:mr-auto sm:max-w-md">
           <Search className="absolute right-3 top-3 text-oxblood/45" size={18} />
           <input
@@ -849,13 +812,8 @@ function LoadingIntro() {
           <Sparkles size={26} />
         </div>
         <div className="mt-8 text-center">
-<<<<<<< HEAD
           <h1 className="text-4xl font-black">بازارک</h1>
           <span className="mr-2 text-xs text-oxblood-dark/45">بازار فروش عمده آسیاب صداقت</span>
-=======
-          <BrandLogo inverted />
-          <p className="mt-2 text-sm text-white/75">در حال دریافت اطلاعات…</p>
->>>>>>> refs/remotes/origin/main
         </div>
       </div>
     </main>
@@ -1102,13 +1060,11 @@ function Admin({
   );
 }
 
-<<<<<<< HEAD
 function ReportsPanel({ products, categories, importReports, onSelect, onExportCategory, currency, selectedCategories, setSelectedCategories, exportBatchCategories, allColumns, selectedReportColumns, setSelectedReportColumns }: { products: Product[]; categories: { id: string; name: string }[]; importReports: ImportReport[]; onSelect: (product: Product) => void; onExportCategory: (category: { id: string; name: string }) => void; currency: Currency; selectedCategories: string[]; setSelectedCategories: Dispatch<SetStateAction<string[]>>; exportBatchCategories: () => void; allColumns: string[]; selectedReportColumns: string[]; setSelectedReportColumns: Dispatch<SetStateAction<string[]>> }) {
   const toggleCategory = (id: string) => setSelectedCategories((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   const toggleColumn = (col: string) => setSelectedReportColumns((current) => current.includes(col) ? current.filter((value) => value !== col) : [...current, col]);
   const productsByLatestChange = [...products].sort((a, b) => priceChangeTime(sortedPriceHistory(b.priceHistory)[0]) - priceChangeTime(sortedPriceHistory(a.priceHistory)[0]));
   return <div className="mt-5 space-y-5"><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش دسته‌بندی‌ها</h2><div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" onClick={exportBatchCategories} disabled={!selectedCategories.length} className="rounded-lg bg-oxblood px-3 py-2 text-sm font-bold text-white disabled:opacity-40">خروجی اکسل دسته‌های انتخاب شده ({selectedCategories.length.toLocaleString("fa-IR")})</button><small className="text-xs text-oxblood-dark/55">دسته‌ها را با تیک انتخاب کنید، سپس خروجی بگیرید.</small></div><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => { const items = products.filter((product) => product.categoryIds.includes(category.id)); const checked = selectedCategories.includes(category.id); return <article key={category.id} className={`rounded-lg bg-blush p-3 ${checked ? "ring-2 ring-oxblood" : ""}`}><label className="flex items-center gap-2"><input type="checkbox" checked={checked} onChange={() => toggleCategory(category.id)} /><b>{category.name}</b></label><span className="mt-2 block text-sm">{items.length.toLocaleString("fa-IR")} محصول</span><small className="mt-1 block text-oxblood-dark/55">{items.filter((item) => item.active).length.toLocaleString("fa-IR")} فعال</small><button type="button" onClick={() => onExportCategory(category)} className="mt-3 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">خروجی اکسل این دسته</button></article>; })}</div>{!categories.length && <p className="mt-3 text-sm text-oxblood-dark/55">هنوز دسته‌ای برای محصولات ساخته نشده است.</p>}</section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">تنظیمات خروجی اکسل</h2><p className="mt-1 text-sm text-oxblood/60">ستون‌های مورد نیاز برای خروجی اکسل را انتخاب کنید:</p><div className="mt-3 flex flex-wrap gap-2">{allColumns.map((col) => <label key={col} className="flex items-center gap-2 cursor-pointer rounded-lg border border-oxblood/10 bg-blush/50 p-2 text-sm text-oxblood transition hover:bg-blush"><input type="checkbox" checked={selectedReportColumns.includes(col)} onChange={() => toggleColumn(col)} />{col}</label>)}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش هر محصول</h2><div className="mt-3 space-y-2">{productsByLatestChange.map((product) => { const latestChange = sortedPriceHistory(product.priceHistory)[0]; return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg bg-blush p-3"><div><b>{product.name}</b><small className="mt-1 block text-xs text-oxblood-dark/55">قیمت فعلی: {money(product.price)} {currencyTitle(currency)} · {product.priceHistory.length.toLocaleString("fa-IR")} تغییر قیمت</small><small className="mt-1 block text-xs text-oxblood-dark/45">{latestChange ? `آخرین تغییر: ${dateTime(latestChange.changedAt)}` : "بدون تغییر قیمت"}</small></div><button type="button" onClick={() => onSelect(product)} className="shrink-0 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">گزارش محصول</button></div>; })}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش ورود فایل‌ها</h2>{importReports.length ? <div className="mt-3 space-y-2">{importReports.map((report) => <article key={report.id} className="rounded-lg bg-blush p-3"><b className="block break-all text-sm">{report.fileName}</b><small className="mt-1 block text-xs text-oxblood-dark/55">{dateTime(report.importedAt)}</small><div className="mt-2 flex flex-wrap gap-2 text-xs"><span>جدید: {report.added.toLocaleString("fa-IR")}</span><span>تغییر قیمت: {report.priceChanged.toLocaleString("fa-IR")}</span><span>بدون تغییر: {report.unchanged.toLocaleString("fa-IR")}</span></div></article>)}</div> : <p className="mt-3 text-sm text-oxblood-dark/55">هنوز گزارشی از ورود اکسل محصولات ثبت نشده است.</p>}</section></div>;
-=======
 function RoundingSettings({ value, onChange }: { value: PriceRounding; onChange: (value: PriceRounding) => Promise<void> }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1134,7 +1090,6 @@ function RoundingSettings({ value, onChange }: { value: PriceRounding; onChange:
 function ReportsPanel({ products, categories, importReports, onSelect, onExportCategory, currency }: { products: Product[]; categories: { id: string; name: string }[]; importReports: ImportReport[]; onSelect: (product: Product) => void; onExportCategory: (category: { id: string; name: string }) => void; currency: Currency }) {
   const productsByLatestChange = [...products].sort((a, b) => priceChangeTime(sortedPriceHistory(b.priceHistory)[0]) - priceChangeTime(sortedPriceHistory(a.priceHistory)[0]));
   return <div className="mt-5 space-y-5"><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش دسته‌بندی‌ها</h2><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => { const items = products.filter((product) => hasCategory(product, category.id)); return <article key={category.id} className="rounded-lg bg-blush p-3"><b>{category.name}</b><span className="mt-2 block text-sm">{items.length.toLocaleString("fa-IR")} محصول</span><small className="mt-1 block text-oxblood-dark/55">{items.filter((item) => item.active).length.toLocaleString("fa-IR")} فعال</small><button type="button" onClick={() => onExportCategory(category)} className="mt-3 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">خروجی اکسل این دسته</button></article>; })}</div>{!categories.length && <p className="mt-3 text-sm text-oxblood-dark/55">هنوز دسته‌ای برای محصولات ساخته نشده است.</p>}</section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش هر محصول</h2><div className="mt-3 space-y-2">{productsByLatestChange.map((product) => { const latestChange = sortedPriceHistory(product.priceHistory)[0]; return <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg bg-blush p-3"><div><b>{product.name}</b><small className="mt-1 block text-xs text-oxblood-dark/55">قیمت فعلی: {money(product.price)} {currencyTitle(currency)} · {product.priceHistory.length.toLocaleString("fa-IR")} تغییر قیمت</small><small className="mt-1 block text-xs text-oxblood-dark/45">{latestChange ? `آخرین تغییر: ${dateTime(latestChange.changedAt)}` : "بدون تغییر قیمت"}</small></div><button type="button" onClick={() => onSelect(product)} className="shrink-0 rounded-lg border border-oxblood/20 bg-white px-3 py-2 text-xs font-bold text-oxblood">گزارش محصول</button></div>; })}</div></section><section className="rounded-xl border border-oxblood/10 bg-white p-4"><h2 className="font-black">گزارش ورود فایل‌ها</h2>{importReports.length ? <div className="mt-3 space-y-2">{importReports.map((report) => <article key={report.id} className="rounded-lg bg-blush p-3"><b className="block break-all text-sm">{report.fileName}</b><small className="mt-1 block text-xs text-oxblood-dark/55">{dateTime(report.importedAt)}</small><div className="mt-2 flex flex-wrap gap-2 text-xs"><span>جدید: {report.added.toLocaleString("fa-IR")}</span><span>تغییر قیمت: {report.priceChanged.toLocaleString("fa-IR")}</span><span>بدون تغییر: {report.unchanged.toLocaleString("fa-IR")}</span></div></article>)}</div> : <p className="mt-3 text-sm text-oxblood-dark/55">هنوز گزارشی از ورود اکسل محصولات ثبت نشده است.</p>}</section></div>;
->>>>>>> refs/remotes/origin/main
 }
 
 function CategoryForm({ categories, onChange }: { categories: { id: string; name: string }[]; onChange: (categories: { id: string; name: string }[]) => void }) {
