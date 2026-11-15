@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mongoDatabase } from "@/lib/mongodb";
-<<<<<<< HEAD
 import { cacheGet, cacheSet, cacheInvalidate } from "@/lib/redis";
-=======
 import { levelPriceForBasePrice, recordPricingChange, type ProductLevel } from "@/app/lib/price-history";
->>>>>>> refs/remotes/origin/main
 import { ADMIN_COOKIE, isValidAdminToken } from "@/app/lib/auth";
 
 export const runtime = "nodejs";
@@ -82,11 +79,6 @@ export async function GET(request: NextRequest) {
         { $project: { items: { $slice: [`$${section}`, offset, limit] }, total: { $size: { $ifNull: [`$${section}`, []] } } } },
       ]).toArray();
       if (!page) throw new Error("MongoDB data has not been initialized");
-<<<<<<< HEAD
-      const response = { items: page.items, offset, limit, total: page.total, hasMore: offset + page.items.length < page.total };
-      await cacheSet(pageScope, response);
-      return NextResponse.json(response);
-=======
       // Price history is loaded on its own. Keeping it out of the product list
       // stops the first screen from waiting on every past price snapshot.
       const items = section === "products" ? page.items.map((item) => {
@@ -111,7 +103,6 @@ export async function GET(request: NextRequest) {
         return { id: item.id, priceHistory: Array.isArray(item.priceHistory) ? item.priceHistory : [] };
       });
       return NextResponse.json({ items, offset, limit, total: products.length, hasMore: offset + items.length < products.length });
->>>>>>> refs/remotes/origin/main
     }
     return NextResponse.json(await cachedReadDatabase());
   } catch {
@@ -129,12 +120,6 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "invalid database section" }, { status: 400 });
     }
     const collection = (await mongoDatabase()).collection<DatabaseDocument>("appState");
-<<<<<<< HEAD
-    // Every successful write below mutates the shared appState document. Bump
-    // the cache revision up-front so all readers pick up fresh data on the
-    // next request; the read at the end of this handler also bypasses cache.
-    await cacheInvalidate();
-=======
     if (section === "priceRounding") {
       if (![0, 100, 1000].includes(data)) return NextResponse.json({ error: "invalid price rounding" }, { status: 400 });
       // Compare the read values before appending snapshots, so a concurrent
@@ -160,7 +145,6 @@ export async function PUT(request: NextRequest) {
       }
       return NextResponse.json({ error: "concurrent product update; retry" }, { status: 409 });
     }
->>>>>>> refs/remotes/origin/main
     if (section === "customerFollowUp") {
       const followUp = data as { customerId?: number; date?: string; note?: string };
       if (!followUp.customerId || !String(followUp.note || "").trim()) return NextResponse.json({ error: "invalid follow-up" }, { status: 400 });
